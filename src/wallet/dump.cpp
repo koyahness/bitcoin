@@ -37,7 +37,7 @@ bool DumpWallet(const ArgsManager& args, WalletDatabase& db, bilingual_str& erro
         return false;
     }
     std::ofstream dump_file;
-    dump_file.open(path);
+    dump_file.open(path.std_path());
     if (dump_file.fail()) {
         error = strprintf(_("Unable to open %s for writing"), fs::PathToString(path));
         return false;
@@ -61,7 +61,7 @@ bool DumpWallet(const ArgsManager& args, WalletDatabase& db, bilingual_str& erro
 
     // Write out the file format
     std::string format = db.Format();
-    // BDB files that are opened using BerkeleyRODatabase have it's format as "bdb_ro"
+    // BDB files that are opened using BerkeleyRODatabase have its format as "bdb_ro"
     // We want to override that format back to "bdb"
     if (format == "bdb_ro") {
         format = "bdb";
@@ -134,7 +134,7 @@ bool CreateFromDump(const ArgsManager& args, const std::string& name, const fs::
         error = strprintf(_("Dump file %s does not exist."), fs::PathToString(dump_path));
         return false;
     }
-    std::ifstream dump_file{dump_path};
+    std::ifstream dump_file{dump_path.std_path()};
 
     // Compute the checksum
     HashWriter hasher{};

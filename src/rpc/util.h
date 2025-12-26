@@ -67,6 +67,10 @@ class FillableSigningProvider;
 class CScript;
 struct Sections;
 
+struct HelpResult : std::runtime_error {
+    explicit HelpResult(const std::string& msg) : std::runtime_error{msg} {}
+};
+
 /**
  * Gets all existing output types formatted for RPC help sections.
  *
@@ -441,8 +445,8 @@ public:
     {
         auto i{GetParamIndex(key)};
         // Return argument (required or with default value).
-        if constexpr (std::is_integral_v<R> || std::is_floating_point_v<R>) {
-            // Return numbers by value.
+        if constexpr (std::is_trivially_copyable_v<R>) {
+            // Return trivially copyable types by value.
             return ArgValue<R>(i);
         } else {
             // Return everything else by reference.
@@ -462,7 +466,7 @@ public:
      *
      * The instantiation of this helper for type R must match the corresponding RPCArg::Type.
      *
-     * @return For integral and floating-point types, a std::optional<R> is returned.
+     * @return For trivially copyable types, a std::optional<R> is returned.
      *         For other types, a R* pointer to the argument is returned. If the
      *         argument is not provided, std::nullopt or a null pointer is returned.
      *
@@ -473,8 +477,8 @@ public:
     {
         auto i{GetParamIndex(key)};
         // Return optional argument (without default).
-        if constexpr (std::is_integral_v<R> || std::is_floating_point_v<R>) {
-            // Return numbers by value, wrapped in optional.
+        if constexpr (std::is_trivially_copyable_v<R>) {
+            // Return trivially copyable types by value, wrapped in optional.
             return ArgValue<std::optional<R>>(i);
         } else {
             // Return other types by pointer.

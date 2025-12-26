@@ -1,4 +1,4 @@
-// Copyright (c) 2010-2021 The Bitcoin Core developers
+// Copyright (c) 2010-present The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -15,8 +15,10 @@
 
 #include <consensus/amount.h>
 #include <cstddef>
+#include <cstdint>
 #include <policy/policy.h>
 #include <script/script.h>
+#include <uint256.h>
 #include <util/time.h>
 
 namespace node {
@@ -83,6 +85,29 @@ struct BlockWaitOptions {
      * checks and only returning new templates when the chain tip changes.
      */
     CAmount fee_threshold{MAX_MONEY};
+};
+
+struct BlockCheckOptions {
+    /**
+     * Set false to omit the merkle root check
+     */
+    bool check_merkle_root{true};
+
+    /**
+     * Set false to omit the proof-of-work check
+     */
+    bool check_pow{true};
+};
+
+/**
+ * How to broadcast a local transaction.
+ * Used to influence `BroadcastTransaction()` and its callers.
+ */
+enum class TxBroadcast : uint8_t {
+    /// Add the transaction to the mempool and broadcast to all peers for which tx relay is enabled.
+    MEMPOOL_AND_BROADCAST_TO_ALL,
+    /// Add the transaction to the mempool, but don't broadcast to anybody.
+    MEMPOOL_NO_BROADCAST,
 };
 
 } // namespace node

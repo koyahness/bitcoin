@@ -1,18 +1,18 @@
-// Copyright (c) 2023 The Bitcoin Core developers
+// Copyright (c) 2023-present The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <coins.h>
 #include <crypto/sha256.h>
 #include <primitives/transaction.h>
-#include <test/fuzz/fuzz.h>
 #include <test/fuzz/FuzzedDataProvider.h>
+#include <test/fuzz/fuzz.h>
 #include <test/fuzz/util.h>
 
-#include <assert.h>
-#include <optional>
+#include <cassert>
+#include <cstdint>
 #include <memory>
-#include <stdint.h>
+#include <optional>
 #include <vector>
 
 namespace {
@@ -155,7 +155,7 @@ public:
 
     bool HaveCoin(const COutPoint& outpoint) const final
     {
-        return m_data.count(outpoint);
+        return m_data.contains(outpoint);
     }
 
     uint256 GetBestBlock() const final { return {}; }
@@ -392,7 +392,7 @@ FUZZ_TARGET(coinscache_sim)
                 // Apply to simulation data.
                 flush();
                 // Apply to real caches.
-                caches.back()->Flush();
+                caches.back()->Flush(/*will_reuse_cache=*/provider.ConsumeBool());
             },
 
             [&]() { // Sync.
@@ -400,14 +400,6 @@ FUZZ_TARGET(coinscache_sim)
                 flush();
                 // Apply to real caches.
                 caches.back()->Sync();
-            },
-
-            [&]() { // Flush + ReallocateCache.
-                // Apply to simulation data.
-                flush();
-                // Apply to real caches.
-                caches.back()->Flush();
-                caches.back()->ReallocateCache();
             },
 
             [&]() { // GetCacheSize

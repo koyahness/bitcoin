@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2018-2022 The Bitcoin Core developers
+# Copyright (c) 2018-present The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the avoid_reuse and setwalletflag features."""
@@ -104,7 +104,9 @@ class AvoidReuseTest(BitcoinTestFramework):
 
         # Flags should be node1.avoid_reuse=false, node2.avoid_reuse=true
         assert_equal(self.nodes[0].getwalletinfo()["avoid_reuse"], False)
+        assert_equal(sorted(self.nodes[0].getwalletinfo()["flags"]), sorted(["descriptor_wallet", "last_hardened_xpub_cached"]))
         assert_equal(self.nodes[1].getwalletinfo()["avoid_reuse"], True)
+        assert_equal(sorted(self.nodes[1].getwalletinfo()["flags"]), sorted(["descriptor_wallet", "last_hardened_xpub_cached", "avoid_reuse"]))
 
         self.restart_node(1)
         self.connect_nodes(0, 1)

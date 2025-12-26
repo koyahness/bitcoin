@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021 The Bitcoin Core developers
+// Copyright (c) 2019-present The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -8,6 +8,7 @@
 #include <wallet/scriptpubkeyman.h>
 
 #include <memory>
+#include <util/result.h>
 
 struct bilingual_str;
 
@@ -27,7 +28,7 @@ class ExternalSignerScriptPubKeyMan : public DescriptorScriptPubKeyMan
   */
   bool SetupDescriptor(WalletBatch& batch, std::unique_ptr<Descriptor>desc);
 
-  static ExternalSigner GetExternalSigner();
+  static util::Result<ExternalSigner> GetExternalSigner();
 
   /**
   * Display address on the device and verify that the returned value matches.

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2022 The Bitcoin Core developers
+// Copyright (c) 2019-present The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -18,6 +18,7 @@
 #include <versionbits.h>
 
 #include <algorithm>
+#include <memory>
 
 using node::BlockAssembler;
 using node::NodeContext;
@@ -83,9 +84,9 @@ struct BlockValidationStateCatcher : public CValidationInterface {
           m_state{} {}
 
 protected:
-    void BlockChecked(const CBlock& block, const BlockValidationState& state) override
+    void BlockChecked(const std::shared_ptr<const CBlock>& block, const BlockValidationState& state) override
     {
-        if (block.GetHash() != m_hash) return;
+        if (block->GetHash() != m_hash) return;
         m_state = state;
     }
 };

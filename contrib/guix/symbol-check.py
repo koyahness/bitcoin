@@ -16,88 +16,85 @@ import lief
 
 # Debian 11 (Bullseye) EOL: 2026. https://wiki.debian.org/LTS
 #
-# - libgcc version 10.2.1 (https://packages.debian.org/bullseye/libgcc-s1)
 # - libc version 2.31 (https://packages.debian.org/source/bullseye/glibc)
 #
 # Ubuntu 20.04 (Focal) EOL: 2030. https://wiki.ubuntu.com/ReleaseTeam
 #
-# - libgcc version 10.5.0 (https://packages.ubuntu.com/focal/libgcc1)
 # - libc version 2.31 (https://packages.ubuntu.com/focal/libc6)
 #
 # CentOS Stream 9 EOL: 2027. https://www.centos.org/cl-vs-cs/#end-of-life
 #
-# - libgcc version 12.2.1 (https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/)
 # - libc version 2.34 (https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/)
 #
-# See https://gcc.gnu.org/onlinedocs/libstdc++/manual/abi.html for more info.
+# bitcoin-qt
+#
+# Ubuntu 22.04 is currently the baseline for ELF_ALLOWED_LIBRARIES:
+#
+# libfontconfig version 2.13.1 (https://packages.ubuntu.com/jammy/libfontconfig1)
+#
+# libfreetype version 2.11.1 (https://packages.ubuntu.com/jammy/libfreetype6)
 
 MAX_VERSIONS = {
-'GCC':       (4,3,0),
 'GLIBC': {
-    lief.ELF.ARCH.x86_64: (2,31),
+    lief.ELF.ARCH.X86_64: (2,31),
     lief.ELF.ARCH.ARM:    (2,31),
     lief.ELF.ARCH.AARCH64:(2,31),
     lief.ELF.ARCH.PPC64:  (2,31),
     lief.ELF.ARCH.RISCV:  (2,31),
-},
-'LIBATOMIC': (1,0),
-'V':         (0,5,0),  # xkb (bitcoin-qt only)
+    }
 }
 
 # Ignore symbols that are exported as part of every executable
 IGNORE_EXPORTS = {
-'environ', '_environ', '__environ', '_fini', '_init', 'stdin',
-'stdout', 'stderr',
+'stdin', 'stdout', 'stderr',
 }
 
 # Expected linker-loader names can be found here:
 # https://sourceware.org/glibc/wiki/ABIList?action=recall&rev=16
-ELF_INTERPRETER_NAMES: dict[lief.ELF.ARCH, dict[lief.ENDIANNESS, str]] = {
-    lief.ELF.ARCH.x86_64:  {
-        lief.ENDIANNESS.LITTLE: "/lib64/ld-linux-x86-64.so.2",
+ELF_INTERPRETER_NAMES: dict[lief.ELF.ARCH, dict[lief.Header.ENDIANNESS, str]] = {
+    lief.ELF.ARCH.X86_64:  {
+        lief.Header.ENDIANNESS.LITTLE: "/lib64/ld-linux-x86-64.so.2",
     },
     lief.ELF.ARCH.ARM:     {
-        lief.ENDIANNESS.LITTLE: "/lib/ld-linux-armhf.so.3",
+        lief.Header.ENDIANNESS.LITTLE: "/lib/ld-linux-armhf.so.3",
     },
     lief.ELF.ARCH.AARCH64: {
-        lief.ENDIANNESS.LITTLE: "/lib/ld-linux-aarch64.so.1",
+        lief.Header.ENDIANNESS.LITTLE: "/lib/ld-linux-aarch64.so.1",
     },
     lief.ELF.ARCH.PPC64:   {
-        lief.ENDIANNESS.BIG: "/lib64/ld64.so.1",
-        lief.ENDIANNESS.LITTLE: "/lib64/ld64.so.2",
+        lief.Header.ENDIANNESS.BIG: "/lib64/ld64.so.1",
+        lief.Header.ENDIANNESS.LITTLE: "/lib64/ld64.so.2",
     },
     lief.ELF.ARCH.RISCV:    {
-        lief.ENDIANNESS.LITTLE: "/lib/ld-linux-riscv64-lp64d.so.1",
+        lief.Header.ENDIANNESS.LITTLE: "/lib/ld-linux-riscv64-lp64d.so.1",
     },
 }
 
-ELF_ABIS: dict[lief.ELF.ARCH, dict[lief.ENDIANNESS, list[int]]] = {
-    lief.ELF.ARCH.x86_64: {
-        lief.ENDIANNESS.LITTLE: [3,2,0],
+ELF_ABIS: dict[lief.ELF.ARCH, dict[lief.Header.ENDIANNESS, list[int]]] = {
+    lief.ELF.ARCH.X86_64: {
+        lief.Header.ENDIANNESS.LITTLE: [3,2,0],
     },
     lief.ELF.ARCH.ARM: {
-        lief.ENDIANNESS.LITTLE: [3,2,0],
+        lief.Header.ENDIANNESS.LITTLE: [3,2,0],
     },
     lief.ELF.ARCH.AARCH64: {
-        lief.ENDIANNESS.LITTLE: [3,7,0],
+        lief.Header.ENDIANNESS.LITTLE: [3,7,0],
     },
     lief.ELF.ARCH.PPC64: {
-        lief.ENDIANNESS.LITTLE: [3,10,0],
-        lief.ENDIANNESS.BIG: [3,2,0],
+        lief.Header.ENDIANNESS.LITTLE: [3,10,0],
+        lief.Header.ENDIANNESS.BIG: [3,2,0],
     },
     lief.ELF.ARCH.RISCV: {
-        lief.ENDIANNESS.LITTLE: [4,15,0],
+        lief.Header.ENDIANNESS.LITTLE: [4,15,0],
     },
 }
 
 # Allowed NEEDED libraries
 ELF_ALLOWED_LIBRARIES = {
 # bitcoind and bitcoin-qt
-'libgcc_s.so.1', # GCC base support
 'libc.so.6', # C library
 'libpthread.so.0', # threading
 'libm.so.6', # math library
-'libatomic.so.1',
 'ld-linux-x86-64.so.2', # 64-bit dynamic linker
 'ld-linux.so.2', # 32-bit dynamic linker
 'ld-linux-aarch64.so.1', # 64-bit ARM dynamic linker
@@ -106,25 +103,9 @@ ELF_ALLOWED_LIBRARIES = {
 'ld64.so.2', # POWER64 ABIv2 dynamic linker
 'ld-linux-riscv64-lp64d.so.1', # 64-bit RISC-V dynamic linker
 # bitcoin-qt only
-'libxcb.so.1', # part of X11
-'libxkbcommon.so.0', # keyboard keymapping
-'libxkbcommon-x11.so.0', # keyboard keymapping
 'libfontconfig.so.1', # font support
 'libfreetype.so.6', # font parsing
 'libdl.so.2', # programming interface to dynamic linker
-'libxcb-cursor.so.0',
-'libxcb-icccm.so.4',
-'libxcb-image.so.0',
-'libxcb-shm.so.0',
-'libxcb-keysyms.so.1',
-'libxcb-randr.so.0',
-'libxcb-render-util.so.0',
-'libxcb-render.so.0',
-'libxcb-shape.so.0',
-'libxcb-sync.so.1',
-'libxcb-xfixes.so.0',
-'libxcb-xinerama.so.0',
-'libxcb-xkb.so.1',
 }
 
 MACHO_ALLOWED_LIBRARIES = {
@@ -223,13 +204,13 @@ def check_exported_symbols(binary) -> bool:
         name = symbol.name
         if binary.header.machine_type == lief.ELF.ARCH.RISCV or name in IGNORE_EXPORTS:
             continue
-        print(f'{binary.name}: export of symbol {name} not allowed!')
+        print(f'{filename}: export of symbol {name} not allowed!')
         ok = False
     return ok
 
 def check_RUNPATH(binary) -> bool:
-    assert binary.get(lief.ELF.DYNAMIC_TAGS.RUNPATH) is None
-    assert binary.get(lief.ELF.DYNAMIC_TAGS.RPATH) is None
+    assert binary.get(lief.ELF.DynamicEntry.TAG.RUNPATH) is None
+    assert binary.get(lief.ELF.DynamicEntry.TAG.RPATH) is None
     return True
 
 def check_ELF_libraries(binary) -> bool:
@@ -250,7 +231,7 @@ def check_MACHO_libraries(binary) -> bool:
     return ok
 
 def check_MACHO_min_os(binary) -> bool:
-    if binary.build_version.minos == [13,0,0]:
+    if binary.build_version.minos == [14,0,0]:
         return True
     return False
 
@@ -260,7 +241,7 @@ def check_MACHO_sdk(binary) -> bool:
     return False
 
 def check_MACHO_lld(binary) -> bool:
-    if binary.build_version.tools[0].version == [18, 1, 8]:
+    if binary.build_version.tools[0].version == [19, 1, 4]:
         return True
     return False
 
@@ -294,12 +275,12 @@ def check_ELF_interpreter(binary) -> bool:
 
 def check_ELF_ABI(binary) -> bool:
     expected_abi = ELF_ABIS[binary.header.machine_type][binary.abstract.header.endianness]
-    note = binary.concrete.get(lief.ELF.NOTE_TYPES.ABI_TAG)
-    assert note.details.abi == lief.ELF.NOTE_ABIS.LINUX
-    return note.details.version == expected_abi
+    note = binary.concrete.get(lief.ELF.Note.TYPE.GNU_ABI_TAG)
+    assert note.abi == lief.ELF.NoteAbi.ABI.LINUX
+    return note.version == expected_abi
 
 CHECKS = {
-lief.EXE_FORMATS.ELF: [
+lief.Binary.FORMATS.ELF: [
     ('IMPORTED_SYMBOLS', check_imported_symbols),
     ('EXPORTED_SYMBOLS', check_exported_symbols),
     ('LIBRARY_DEPENDENCIES', check_ELF_libraries),
@@ -307,13 +288,13 @@ lief.EXE_FORMATS.ELF: [
     ('ABI', check_ELF_ABI),
     ('RUNPATH', check_RUNPATH),
 ],
-lief.EXE_FORMATS.MACHO: [
+lief.Binary.FORMATS.MACHO: [
     ('DYNAMIC_LIBRARIES', check_MACHO_libraries),
     ('MIN_OS', check_MACHO_min_os),
     ('SDK', check_MACHO_sdk),
     ('LLD', check_MACHO_lld),
 ],
-lief.EXE_FORMATS.PE: [
+lief.Binary.FORMATS.PE: [
     ('DYNAMIC_LIBRARIES', check_PE_libraries),
     ('SUBSYSTEM_VERSION', check_PE_subsystem_version),
     ('APPLICATION_MANIFEST', check_PE_application_manifest),
@@ -324,6 +305,7 @@ if __name__ == '__main__':
     retval: int = 0
     for filename in sys.argv[1:]:
         binary = lief.parse(filename)
+
         etype = binary.format
 
         failed: list[str] = []

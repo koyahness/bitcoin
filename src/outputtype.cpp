@@ -20,7 +20,7 @@ static const std::string OUTPUT_TYPE_STRING_BECH32 = "bech32";
 static const std::string OUTPUT_TYPE_STRING_BECH32M = "bech32m";
 static const std::string OUTPUT_TYPE_STRING_UNKNOWN = "unknown";
 
-std::optional<OutputType> ParseOutputType(const std::string& type)
+std::optional<OutputType> ParseOutputType(std::string_view type)
 {
     if (type == OUTPUT_TYPE_STRING_LEGACY) {
         return OutputType::LEGACY;
@@ -44,6 +44,11 @@ const std::string& FormatOutputType(OutputType type)
     case OutputType::UNKNOWN: return OUTPUT_TYPE_STRING_UNKNOWN;
     } // no default case, so the compiler can warn about missing cases
     assert(false);
+}
+
+std::string FormatAllOutputTypes()
+{
+    return util::Join(OUTPUT_TYPES, ", ", [](const auto& i) { return "\"" + FormatOutputType(i) + "\""; });
 }
 
 CTxDestination AddAndGetDestinationForScript(FlatSigningProvider& keystore, const CScript& script, OutputType type)

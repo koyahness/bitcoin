@@ -1,6 +1,6 @@
 # FreeBSD Build Guide
 
-**Updated for FreeBSD [14.0](https://www.freebsd.org/releases/14.0R/announce/)**
+**Updated for FreeBSD [14.3](https://www.freebsd.org/releases/14.3R/announce/)**
 
 This guide describes how to build bitcoind, command-line utilities, and GUI on FreeBSD.
 
@@ -13,6 +13,22 @@ Run the following as root to install the base dependencies for building.
 pkg install boost-libs cmake git libevent pkgconf
 ```
 
+SQLite is required for the wallet:
+
+```bash
+pkg install sqlite3
+```
+
+To build Bitcoin Core without the wallet, use `-DENABLE_WALLET=OFF`.
+
+Cap'n Proto is needed for IPC functionality (see [multiprocess.md](multiprocess.md)):
+
+```bash
+pkg install capnproto
+```
+
+Compile with `-DENABLE_IPC=OFF` if you do not need IPC functionality.
+
 See [dependencies.md](dependencies.md) for a complete overview.
 
 ### 2. Clone Bitcoin Repo
@@ -23,17 +39,6 @@ git clone https://github.com/bitcoin/bitcoin.git
 
 ### 3. Install Optional Dependencies
 
-#### Wallet Dependencies
-It is not necessary to build wallet functionality to run either `bitcoind` or `bitcoin-qt`.
-
-###### Descriptor Wallet Support
-
-`sqlite3` is required to support [descriptor wallets](descriptors.md).
-Skip if you don't intend to use descriptor wallets.
-```bash
-pkg install sqlite3
-```
-
 #### GUI Dependencies
 ###### Qt6
 
@@ -41,7 +46,7 @@ Bitcoin Core includes a GUI built with the cross-platform Qt Framework. To compi
 the necessary parts of Qt, the libqrencode and pass `-DBUILD_GUI=ON`. Skip if you don't intend to use the GUI.
 
 ```bash
-pkg install qt6-buildtools qt6-core qt6-gui qt6-linguisttools qt6-testlib qt6-widgets
+pkg install qt6-base qt6-tools
 ```
 
 ###### libqrencode
@@ -79,7 +84,7 @@ pkg install python3 databases/py-sqlite3 net/py-pyzmq
 
 There are many ways to configure Bitcoin Core, here are a few common examples:
 
-##### Descriptor Wallet and GUI:
+##### Wallet and GUI:
 This enables the GUI, assuming `sqlite` and `qt` are installed.
 ```bash
 cmake -B build -DBUILD_GUI=ON
@@ -95,6 +100,6 @@ cmake -B build -DENABLE_WALLET=OFF
 ### 2. Compile
 
 ```bash
-cmake --build build     # Use "-j N" for N parallel jobs.
-ctest --test-dir build  # Use "-j N" for N parallel tests. Some tests are disabled if Python 3 is not available.
+cmake --build build     # Append "-j N" for N parallel jobs.
+ctest --test-dir build  # Append "-j N" for N parallel tests.
 ```

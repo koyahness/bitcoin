@@ -43,8 +43,8 @@
 #include <validation.h>
 #include <validationinterface.h>
 
+#include <cstdint>
 #include <memory>
-#include <stdint.h>
 
 using interfaces::BlockRef;
 using interfaces::BlockTemplate;
@@ -181,7 +181,7 @@ static UniValue generateBlocks(ChainstateManager& chainman, Mining& miner, const
     return blockHashes;
 }
 
-static bool getScriptFromDescriptor(const std::string& descriptor, CScript& script, std::string& error)
+static bool getScriptFromDescriptor(std::string_view descriptor, CScript& script, std::string& error)
 {
     FlatSigningProvider key_provider;
     const auto descs = Parse(descriptor, key_provider, error, /* require_checksum = */ false);
@@ -241,7 +241,7 @@ static RPCHelpMan generatetodescriptor()
 
     CScript coinbase_output_script;
     std::string error;
-    if (!getScriptFromDescriptor(self.Arg<std::string>("descriptor"), coinbase_output_script, error)) {
+    if (!getScriptFromDescriptor(self.Arg<std::string_view>("descriptor"), coinbase_output_script, error)) {
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, error);
     }
 
@@ -353,8 +353,8 @@ static RPCHelpMan generateblock()
         const auto& str{raw_txs_or_txids[i].get_str()};
 
         CMutableTransaction mtx;
-        if (auto hash{uint256::FromHex(str)}) {
-            const auto tx{mempool.get(*hash)};
+        if (auto txid{Txid::FromHex(str)}) {
+            const auto tx{mempool.get(*txid)};
             if (!tx) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("Transaction %s not in mempool.", str));
             }
@@ -388,8 +388,7 @@ static RPCHelpMan generateblock()
         block.vtx.insert(block.vtx.end(), txs.begin(), txs.end());
         RegenerateCommitments(block, chainman);
 
-        BlockValidationState state;
-        if (!TestBlockValidity(state, chainman.GetParams(), chainman.ActiveChainstate(), block, chainman.m_blockman.LookupBlockIndex(block.hashPrevBlock), /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false)) {
+        if (BlockValidationState state{TestBlockValidity(chainman.ActiveChainstate(), block, /*check_pow=*/false, /*check_merkle_root=*/false)}; !state.IsValid()) {
             throw JSONRPCError(RPC_VERIFY_ERROR, strprintf("TestBlockValidity failed: %s", state.ToString()));
         }
     }
@@ -430,6 +429,7 @@ static RPCHelpMan getmininginfo()
                         {RPCResult::Type::STR_HEX, "target", "The current target"},
                         {RPCResult::Type::NUM, "networkhashps", "The network hashes per second"},
                         {RPCResult::Type::NUM, "pooledtx", "The size of the mempool"},
+                        {RPCResult::Type::STR_AMOUNT, "blockmintxfee", "Minimum feerate of packages selected for block inclusion in " + CURRENCY_UNIT + "/kvB"},
                         {RPCResult::Type::STR, "chain", "current network name (" LIST_CHAIN_NAMES ")"},
                         {RPCResult::Type::STR_HEX, "signet_challenge", /*optional=*/true, "The block challenge (aka. block script), in hexadecimal (only present if the current network is a signet)"},
                         {RPCResult::Type::OBJ, "next", "The next block",
@@ -470,6 +470,9 @@ static RPCHelpMan getmininginfo()
     obj.pushKV("target", GetTarget(tip, chainman.GetConsensus().powLimit).GetHex());
     obj.pushKV("networkhashps",    getnetworkhashps().HandleRequest(request));
     obj.pushKV("pooledtx",         (uint64_t)mempool.size());
+    BlockAssembler::Options assembler_options;
+    ApplyArgsManOptions(*node.args, assembler_options);
+    obj.pushKV("blockmintxfee", ValueFromAmount(assembler_options.blockMinFeeRate.GetFeePerK()));
     obj.pushKV("chain", chainman.GetParams().GetChainTypeString());
 
     UniValue next(UniValue::VOBJ);
@@ -518,7 +521,7 @@ static RPCHelpMan prioritisetransaction()
 {
     LOCK(cs_main);
 
-    uint256 hash(ParseHashV(request.params[0], "txid"));
+    auto txid{Txid::FromUint256(ParseHashV(request.params[0], "txid"))};
     const auto dummy{self.MaybeArg<double>("dummy")};
     CAmount nAmount = request.params[2].getInt<int64_t>();
 
@@ -529,12 +532,12 @@ static RPCHelpMan prioritisetransaction()
     CTxMemPool& mempool = EnsureAnyMemPool(request.context);
 
     // Non-0 fee dust transactions are not allowed for entry, and modification not allowed afterwards
-    const auto& tx = mempool.get(hash);
+    const auto& tx = mempool.get(txid);
     if (mempool.m_opts.require_standard && tx && !GetDust(*tx, mempool.m_opts.dust_relay_feerate).empty()) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Priority is not supported for transactions with dust outputs.");
     }
 
-    mempool.PrioritiseTransaction(hash, nAmount);
+    mempool.PrioritiseTransaction(txid, nAmount);
     return true;
 },
     };
@@ -705,8 +708,6 @@ static RPCHelpMan getblocktemplate()
     NodeContext& node = EnsureAnyNodeContext(request.context);
     ChainstateManager& chainman = EnsureChainman(node);
     Mining& miner = EnsureMining(node);
-    LOCK(cs_main);
-    uint256 tip{CHECK_NONFATAL(miner.getTip()).value().hash};
 
     std::string strMode = "template";
     UniValue lpval = NullUniValue;
@@ -736,6 +737,7 @@ static RPCHelpMan getblocktemplate()
                 throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Block decode failed");
 
             uint256 hash = block.GetHash();
+            LOCK(cs_main);
             const CBlockIndex* pindex = chainman.m_blockman.LookupBlockIndex(hash);
             if (pindex) {
                 if (pindex->IsValid(BLOCK_VALID_SCRIPTS))
@@ -745,13 +747,7 @@ static RPCHelpMan getblocktemplate()
                 return "duplicate-inconclusive";
             }
 
-            // TestBlockValidity only supports blocks built on the current Tip
-            if (block.hashPrevBlock != tip) {
-                return "inconclusive-not-best-prevblk";
-            }
-            BlockValidationState state;
-            TestBlockValidity(state, chainman.GetParams(), chainman.ActiveChainstate(), block, chainman.m_blockman.LookupBlockIndex(block.hashPrevBlock), /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/true);
-            return BIP22ValidationResult(state);
+            return BIP22ValidationResult(TestBlockValidity(chainman.ActiveChainstate(), block, /*check_pow=*/false, /*check_merkle_root=*/true));
         }
 
         const UniValue& aClientRules = oparam.find_value("rules");
@@ -779,6 +775,9 @@ static RPCHelpMan getblocktemplate()
 
     static unsigned int nTransactionsUpdatedLast;
     const CTxMemPool& mempool = EnsureMemPool(node);
+
+    WAIT_LOCK(cs_main, cs_main_lock);
+    uint256 tip{CHECK_NONFATAL(miner.getTip()).value().hash};
 
     // Long Polling (BIP22)
     if (!lpval.isNull()) {
@@ -817,8 +816,8 @@ static RPCHelpMan getblocktemplate()
         }
 
         // Release lock while waiting
-        LEAVE_CRITICAL_SECTION(cs_main);
         {
+            REVERSE_LOCK(cs_main_lock, cs_main);
             MillisecondsDouble checktxtime{std::chrono::minutes(1)};
             while (IsRPCRunning()) {
                 // If hashWatchedChain is not a real block hash, this will
@@ -837,8 +836,6 @@ static RPCHelpMan getblocktemplate()
                 checktxtime = std::chrono::seconds(10);
             }
         }
-        ENTER_CRITICAL_SECTION(cs_main);
-
         tip = CHECK_NONFATAL(miner.getTip()).value().hash;
 
         if (!IsRPCRunning())
@@ -849,12 +846,12 @@ static RPCHelpMan getblocktemplate()
     const Consensus::Params& consensusParams = chainman.GetParams().GetConsensus();
 
     // GBT must be called with 'signet' set in the rules for signet chains
-    if (consensusParams.signet_blocks && setClientRules.count("signet") != 1) {
+    if (consensusParams.signet_blocks && !setClientRules.contains("signet")) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "getblocktemplate must be called with the signet rule set (call with {\"rules\": [\"segwit\", \"signet\"]})");
     }
 
     // GBT must be called with 'segwit' set in the rules
-    if (setClientRules.count("segwit") != 1) {
+    if (!setClientRules.contains("segwit")) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "getblocktemplate must be called with the segwit rule set (call with {\"rules\": [\"segwit\"]})");
     }
 
@@ -894,14 +891,14 @@ static RPCHelpMan getblocktemplate()
     UniValue aCaps(UniValue::VARR); aCaps.push_back("proposal");
 
     UniValue transactions(UniValue::VARR);
-    std::map<uint256, int64_t> setTxIndex;
+    std::map<Txid, int64_t> setTxIndex;
     std::vector<CAmount> tx_fees{block_template->getTxFees()};
     std::vector<CAmount> tx_sigops{block_template->getTxSigops()};
 
     int i = 0;
     for (const auto& it : block.vtx) {
         const CTransaction& tx = *it;
-        uint256 txHash = tx.GetHash();
+        Txid txHash = tx.GetHash();
         setTxIndex[txHash] = i++;
 
         if (tx.IsCoinBase())
@@ -916,7 +913,7 @@ static RPCHelpMan getblocktemplate()
         UniValue deps(UniValue::VARR);
         for (const CTxIn &in : tx.vin)
         {
-            if (setTxIndex.count(in.prevout.hash))
+            if (setTxIndex.contains(in.prevout.hash))
                 deps.push_back(setTxIndex[in.prevout.hash]);
         }
         entry.pushKV("depends", std::move(deps));
@@ -960,7 +957,7 @@ static RPCHelpMan getblocktemplate()
 
     for (const auto& [name, info] : gbtstatus.signalling) {
         vbavailable.pushKV(gbt_rule_value(name, info.gbt_optional_rule), info.bit);
-        if (!info.gbt_optional_rule && !setClientRules.count(name)) {
+        if (!info.gbt_optional_rule && !setClientRules.contains(name)) {
             // If the client doesn't support this, don't indicate it in the [default] version
             block.nVersion &= ~info.mask;
         }
@@ -969,7 +966,7 @@ static RPCHelpMan getblocktemplate()
     for (const auto& [name, info] : gbtstatus.locked_in) {
         block.nVersion |= info.mask;
         vbavailable.pushKV(gbt_rule_value(name, info.gbt_optional_rule), info.bit);
-        if (!info.gbt_optional_rule && !setClientRules.count(name)) {
+        if (!info.gbt_optional_rule && !setClientRules.contains(name)) {
             // If the client doesn't support this, don't indicate it in the [default] version
             block.nVersion &= ~info.mask;
         }
@@ -977,7 +974,7 @@ static RPCHelpMan getblocktemplate()
 
     for (const auto& [name, info] : gbtstatus.active) {
         aRules.push_back(gbt_rule_value(name, info.gbt_optional_rule));
-        if (!info.gbt_optional_rule && !setClientRules.count(name)) {
+        if (!info.gbt_optional_rule && !setClientRules.contains(name)) {
             // Not supported by the client; make sure it's safe to proceed
             throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Support for '%s' rule requires explicit client support", name));
         }
@@ -1037,9 +1034,9 @@ public:
     explicit submitblock_StateCatcher(const uint256 &hashIn) : hash(hashIn), state() {}
 
 protected:
-    void BlockChecked(const CBlock& block, const BlockValidationState& stateIn) override {
-        if (block.GetHash() != hash)
-            return;
+    void BlockChecked(const std::shared_ptr<const CBlock>& block, const BlockValidationState& stateIn) override
+    {
+        if (block->GetHash() != hash) return;
         found = true;
         state = stateIn;
     }

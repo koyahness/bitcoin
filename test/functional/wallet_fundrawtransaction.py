@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2014-2022 The Bitcoin Core developers
+# Copyright (c) 2014-present The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the fundrawtransaction RPC."""
@@ -43,12 +43,14 @@ class RawTransactionsTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 4
         self.extra_args = [[
-            "-deprecatedrpc=settxfee"
+            "-deprecatedrpc=settxfee",
+            "-minrelaytxfee=0.00001000",
         ] for i in range(self.num_nodes)]
         self.setup_clean_chain = True
         # whitelist peers to speed up tx relay / mempool sync
         self.noban_tx_relay = True
         self.rpc_timeout = 90  # to prevent timeouts in `test_transaction_too_large`
+        self.supports_cli = False
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -152,6 +154,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.test_feerate_rounding()
         self.test_input_confs_control()
         self.test_duplicate_outputs()
+        self.test_watchonly_cannot_grind_r()
 
     def test_duplicate_outputs(self):
         self.log.info("Test deserializing and funding a transaction with duplicate outputs")
@@ -780,7 +783,7 @@ class RawTransactionsTest(BitcoinTestFramework):
         self.nodes[3].loadwallet('wwatch')
         wwatch = self.nodes[3].get_wallet_rpc('wwatch')
         w3 = self.nodes[3].get_wallet_rpc(self.default_wallet_name)
-        result = wwatch.fundrawtransaction(rawtx, includeWatching=True, changeAddress=w3.getrawchangeaddress(), subtractFeeFromOutputs=[0])
+        result = wwatch.fundrawtransaction(rawtx, changeAddress=w3.getrawchangeaddress(), subtractFeeFromOutputs=[0])
         res_dec = self.nodes[0].decoderawtransaction(result["hex"])
         assert_equal(len(res_dec["vin"]), 1)
         assert res_dec["vin"][0]["txid"] == self.watchonly_utxo['txid']
@@ -845,7 +848,7 @@ class RawTransactionsTest(BitcoinTestFramework):
                 assert_raises_rpc_error(-3, f"JSON value of type {k} for field conf_target is not of expected type number",
                     node.fundrawtransaction, rawtx, estimate_mode=mode, conf_target=v, add_inputs=True)
             for n in [-1, 0, 1009]:
-                assert_raises_rpc_error(-8, "Invalid conf_target, must be between 1 and 1008",  # max value of 1008 per src/policy/fees.h
+                assert_raises_rpc_error(-8, "Invalid conf_target, must be between 1 and 1008",  # max value of 1008 per src/policy/fees/block_policy_estimator.h
                     node.fundrawtransaction, rawtx, estimate_mode=mode, conf_target=n, add_inputs=True)
 
         self.log.info("Test invalid fee rate settings")
@@ -1515,6 +1518,29 @@ class RawTransactionsTest(BitcoinTestFramework):
         assert txid2 in mempool
 
         wallet.unloadwallet()
+
+    def test_watchonly_cannot_grind_r(self):
+        self.log.info("Test that a watchonly wallet will estimate higher fees for a tx than the wallet with private keys")
+        self.nodes[0].createwallet("grind")
+        wallet = self.nodes[0].get_wallet_rpc("grind")
+        default_wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
+
+        self.nodes[0].createwallet(wallet_name="grind_watchonly", disable_private_keys=True)
+        watchonly = self.nodes[0].get_wallet_rpc("grind_watchonly")
+        assert_equal(watchonly.importdescriptors(wallet.listdescriptors()["descriptors"])[0]["success"], True)
+
+        # Send to legacy address type so that we will have an ecdsa signature with a measurable effect on the feerate
+        default_wallet.sendtoaddress(wallet.getnewaddress(address_type="legacy"), 10)
+        self.generate(self.nodes[0], 1)
+
+        assert_equal(wallet.listunspent(), watchonly.listunspent())
+
+        ret_addr = default_wallet.getnewaddress()
+        tx = wallet.createrawtransaction([], [{ret_addr: 5}])
+        funded = wallet.fundrawtransaction(hexstring=tx, fee_rate=10)
+
+        watchonly_funded = watchonly.fundrawtransaction(hexstring=tx, fee_rate=10)
+        assert_greater_than(watchonly_funded["fee"], funded["fee"])
 
 if __name__ == '__main__':
     RawTransactionsTest(__file__).main()
