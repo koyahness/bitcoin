@@ -32,7 +32,7 @@ set(CLIENT_VERSION_MINOR 99)
 set(CLIENT_VERSION_BUILD 0)
 set(CLIENT_VERSION_RC 0)
 set(CLIENT_VERSION_IS_RELEASE "false")
-set(COPYRIGHT_YEAR "2025")
+set(COPYRIGHT_YEAR "2026")
 
 # During the enabling of the CXX and CXXOBJ languages, we modify
 # CMake's compiler/linker invocation strings by appending the content
@@ -119,13 +119,15 @@ endif()
 cmake_dependent_option(BUILD_WALLET_TOOL "Build bitcoin-wallet tool." ${BUILD_TESTS} "ENABLE_WALLET" OFF)
 
 option(REDUCE_EXPORTS "Attempt to reduce exported symbols in the resulting executables." OFF)
-option(WERROR "Treat compiler warnings as errors." OFF)
+option(CMAKE_COMPILE_WARNING_AS_ERROR "Treat compiler warnings as errors." OFF)
 option(WITH_CCACHE "Attempt to use ccache for compiling." ON)
 
 option(WITH_ZMQ "Enable ZMQ notifications." OFF)
 if(WITH_ZMQ)
   find_package(ZeroMQ 4.0.0 MODULE REQUIRED)
 endif()
+
+option(WITH_EMBEDDED_ASMAP "Embed default ASMap data." ON)
 
 option(WITH_USDT "Enable tracepoints for Userspace, Statically Defined Tracing." OFF)
 if(WITH_USDT)
@@ -216,6 +218,7 @@ if(BUILD_FOR_FUZZING)
   set(BUILD_GUI OFF)
   set(ENABLE_EXTERNAL_SIGNER OFF)
   set(WITH_ZMQ OFF)
+  set(WITH_EMBEDDED_ASMAP OFF)
   set(BUILD_TESTS OFF)
   set(BUILD_GUI_TESTS OFF)
   set(BUILD_BENCH OFF)
@@ -483,14 +486,8 @@ configure_file(contrib/filter-lcov.py filter-lcov.py USE_SOURCE_PERMISSIONS COPY
 # Don't allow extended (non-ASCII) symbols in identifiers. This is easier for code review.
 try_append_cxx_flags("-fno-extended-identifiers" TARGET core_interface SKIP_LINK)
 
-# Avoiding the `-ffile-prefix-map` compiler option because it implies
-# `-fcoverage-prefix-map` on Clang or `-fprofile-prefix-map` on GCC,
-# which can cause issues with coverage builds, particularly when using
-# Clang in the OSS-Fuzz environment due to its use of other options
-# and a third party script, or with GCC.
-try_append_cxx_flags("-fdebug-prefix-map=A=B" TARGET core_interface SKIP_LINK
-  IF_CHECK_PASSED "-fdebug-prefix-map=${PROJECT_SOURCE_DIR}/src=."
-)
+# Set `-fmacro-prefix-map`, so that source file names are expanded without the
+# src prefix.
 try_append_cxx_flags("-fmacro-prefix-map=A=B" TARGET core_interface SKIP_LINK
   IF_CHECK_PASSED "-fmacro-prefix-map=${PROJECT_SOURCE_DIR}/src=."
 )
@@ -572,19 +569,6 @@ if(REDUCE_EXPORTS)
   set(CMAKE_CXX_VISIBILITY_PRESET hidden)
   try_append_linker_flag("-Wl,--exclude-libs,ALL" TARGET core_interface)
   try_append_linker_flag("-Wl,-no_exported_symbols" VAR CMAKE_EXE_LINKER_FLAGS)
-endif()
-
-if(WERROR)
-  if(MSVC)
-    set(werror_flag "/WX")
-  else()
-    set(werror_flag "-Werror")
-  endif()
-  try_append_cxx_flags(${werror_flag} TARGET core_interface SKIP_LINK RESULT_VAR compiler_supports_werror)
-  if(NOT compiler_supports_werror)
-    message(FATAL_ERROR "WERROR set but ${werror_flag} is not usable.")
-  endif()
-  unset(werror_flag)
 endif()
 
 # Prefer Unix-style package components over frameworks on macOS.
@@ -673,6 +657,7 @@ else()
   set(ipc_status OFF)
 endif()
 message("  IPC ................................. ${ipc_status}")
+message("  Embedded ASMap ...................... ${WITH_EMBEDDED_ASMAP}")
 message("  USDT tracing ........................ ${WITH_USDT}")
 message("  QR code (GUI) ....................... ${WITH_QRENCODE}")
 message("  DBus (GUI) .......................... ${WITH_DBUS}")
@@ -691,7 +676,7 @@ message("Cross compiling ....................... ${cross_status}")
 message("C++ compiler .......................... ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}, ${CMAKE_CXX_COMPILER}")
 include(FlagsSummary)
 flags_summary()
-message("Treat compiler warnings as errors ..... ${WERROR}")
+message("Treat compiler warnings as errors ..... ${CMAKE_COMPILE_WARNING_AS_ERROR}")
 message("Use ccache for compiling .............. ${WITH_CCACHE}")
 message("\n")
 if(configure_warnings)

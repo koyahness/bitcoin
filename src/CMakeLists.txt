@@ -106,8 +106,7 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   common/system.cpp
   common/url.cpp
   compressor.cpp
-  core_read.cpp
-  core_write.cpp
+  core_io.cpp
   deploymentinfo.cpp
   external_signer.cpp
   init/common.cpp
@@ -194,6 +193,7 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   index/blockfilterindex.cpp
   index/coinstatsindex.cpp
   index/txindex.cpp
+  index/txospenderindex.cpp
   init.cpp
   kernel/chain.cpp
   kernel/checks.cpp
@@ -244,6 +244,7 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   policy/rbf.cpp
   policy/settings.cpp
   policy/truc_policy.cpp
+  private_broadcast.cpp
   rest.cpp
   rpc/blockchain.cpp
   rpc/external_signer.cpp
@@ -286,6 +287,13 @@ target_link_libraries(bitcoin_node
     $<TARGET_NAME_IF_EXISTS:libevent::pthreads>
     $<TARGET_NAME_IF_EXISTS:USDT::headers>
 )
+if(WITH_EMBEDDED_ASMAP)
+  target_compile_definitions(bitcoin_node PRIVATE ENABLE_EMBEDDED_ASMAP=1)
+  include(TargetDataSources)
+  target_raw_data_sources(bitcoin_node NAMESPACE node::data
+    node/data/ip_asn.dat
+  )
+endif()
 
 # Bitcoin wrapper executable that can call other executables.
 if(BUILD_BITCOIN_BIN)

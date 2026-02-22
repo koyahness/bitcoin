@@ -451,8 +451,7 @@ static bool rest_block(const std::any& context,
     case RESTResponseFormat::JSON: {
         if (tx_verbosity) {
             CBlock block{};
-            DataStream block_stream{*block_data};
-            block_stream >> TX_WITH_WITNESS(block);
+            SpanReader{*block_data} >> TX_WITH_WITNESS(block);
             UniValue objBlock = blockToJSON(chainman.m_blockman, block, *tip, *pblockindex, *tx_verbosity, chainman.GetConsensus().powLimit);
             std::string strJSON = objBlock.write() + "\n";
             req->WriteHeader("Content-Type", "application/json");
@@ -1065,7 +1064,7 @@ static bool rest_getutxos(const std::any& context, HTTPRequest* req, const std::
         UniValue utxos(UniValue::VARR);
         for (const CCoin& coin : outs) {
             UniValue utxo(UniValue::VOBJ);
-            utxo.pushKV("height", (int32_t)coin.nHeight);
+            utxo.pushKV("height", coin.nHeight);
             utxo.pushKV("value", ValueFromAmount(coin.out.nValue));
 
             // include the script in a json output

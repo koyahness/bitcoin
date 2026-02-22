@@ -181,6 +181,24 @@ UniValue blockheaderToJSON(const CBlockIndex& tip, const CBlockIndex& blockindex
     return result;
 }
 
+/** Serialize coinbase transaction metadata */
+UniValue coinbaseTxToJSON(const CTransaction& coinbase_tx)
+{
+    CHECK_NONFATAL(!coinbase_tx.vin.empty());
+    const CTxIn& vin_0{coinbase_tx.vin[0]};
+    UniValue coinbase_tx_obj(UniValue::VOBJ);
+    coinbase_tx_obj.pushKV("version", coinbase_tx.version);
+    coinbase_tx_obj.pushKV("locktime", coinbase_tx.nLockTime);
+    coinbase_tx_obj.pushKV("sequence", vin_0.nSequence);
+    coinbase_tx_obj.pushKV("coinbase", HexStr(vin_0.scriptSig));
+    const auto& witness_stack{vin_0.scriptWitness.stack};
+    if (!witness_stack.empty()) {
+        CHECK_NONFATAL(witness_stack.size() == 1);
+        coinbase_tx_obj.pushKV("witness", HexStr(witness_stack[0]));
+    }
+    return coinbase_tx_obj;
+}
+
 UniValue blockToJSON(BlockManager& blockman, const CBlock& block, const CBlockIndex& tip, const CBlockIndex& blockindex, TxVerbosity verbosity, const uint256 pow_limit)
 {
     UniValue result = blockheaderToJSON(tip, blockindex, pow_limit);
@@ -188,6 +206,10 @@ UniValue blockToJSON(BlockManager& blockman, const CBlock& block, const CBlockIn
     result.pushKV("strippedsize", ::GetSerializeSize(TX_NO_WITNESS(block)));
     result.pushKV("size", ::GetSerializeSize(TX_WITH_WITNESS(block)));
     result.pushKV("weight", ::GetBlockWeight(block));
+
+    CHECK_NONFATAL(!block.vtx.empty());
+    result.pushKV("coinbase_tx", coinbaseTxToJSON(*block.vtx[0]));
+
     UniValue txs(UniValue::VARR);
     txs.reserve(block.vtx.size());
 
@@ -760,6 +782,14 @@ static RPCHelpMan getblock()
                     {RPCResult::Type::NUM, "size", "The block size"},
                     {RPCResult::Type::NUM, "strippedsize", "The block size excluding witness data"},
                     {RPCResult::Type::NUM, "weight", "The block weight as defined in BIP 141"},
+                    {RPCResult::Type::OBJ, "coinbase_tx", "Coinbase transaction metadata",
+                    {
+                        {RPCResult::Type::NUM, "version", "The coinbase transaction version"},
+                        {RPCResult::Type::NUM, "locktime", "The coinbase transaction's locktime (nLockTime)"},
+                        {RPCResult::Type::NUM, "sequence", "The coinbase input's sequence number (nSequence)"},
+                        {RPCResult::Type::STR_HEX, "coinbase", "The coinbase input's script"},
+                        {RPCResult::Type::STR_HEX, "witness", /*optional=*/true, "The coinbase input's first (and only) witness stack element, if present"},
+                    }},
                     {RPCResult::Type::NUM, "height", "The block height or index"},
                     {RPCResult::Type::NUM, "version", "The block version"},
                     {RPCResult::Type::STR_HEX, "versionHex", "The block version formatted in hexadecimal"},
@@ -832,9 +862,8 @@ static RPCHelpMan getblock()
         return HexStr(block_data);
     }
 
-    DataStream block_stream{block_data};
     CBlock block{};
-    block_stream >> TX_WITH_WITNESS(block);
+    SpanReader{block_data} >> TX_WITH_WITNESS(block);
 
     TxVerbosity tx_verbosity;
     if (verbosity == 1) {
@@ -864,7 +893,7 @@ std::optional<int> GetPruneHeight(const BlockManager& blockman, const CChain& ch
     if (!first_block || !chain_tip) return std::nullopt;
 
     // If the chain tip is pruned, everything is pruned.
-    if (!((chain_tip->nStatus & BLOCK_HAVE_MASK) == BLOCK_HAVE_MASK)) return chain_tip->nHeight;
+    if ((chain_tip->nStatus & BLOCK_HAVE_MASK) != BLOCK_HAVE_MASK) return chain_tip->nHeight;
 
     const auto& first_unpruned{blockman.GetFirstBlock(*chain_tip, /*status_mask=*/BLOCK_HAVE_MASK, first_block)};
     if (&first_unpruned == first_block) {
@@ -1043,7 +1072,7 @@ static RPCHelpMan gettxoutsetinfo()
     NodeContext& node = EnsureAnyNodeContext(request.context);
     ChainstateManager& chainman = EnsureChainman(node);
     Chainstate& active_chainstate = chainman.ActiveChainstate();
-    active_chainstate.ForceFlushStateToDisk();
+    active_chainstate.ForceFlushStateToDisk(/*wipe_cache=*/false);
 
     CCoinsView* coins_view;
     BlockManager* blockman;
@@ -1084,10 +1113,10 @@ static RPCHelpMan gettxoutsetinfo()
     const std::optional<CCoinsStats> maybe_stats = GetUTXOStats(coins_view, *blockman, hash_type, node.rpc_interruption_point, pindex, index_requested);
     if (maybe_stats.has_value()) {
         const CCoinsStats& stats = maybe_stats.value();
-        ret.pushKV("height", (int64_t)stats.nHeight);
+        ret.pushKV("height", stats.nHeight);
         ret.pushKV("bestblock", stats.hashBlock.GetHex());
-        ret.pushKV("txouts", (int64_t)stats.nTransactionOutputs);
-        ret.pushKV("bogosize", (int64_t)stats.nBogoSize);
+        ret.pushKV("txouts", stats.nTransactionOutputs);
+        ret.pushKV("bogosize", stats.nBogoSize);
         if (hash_type == CoinStatsHashType::HASH_SERIALIZED) {
             ret.pushKV("hash_serialized_3", stats.hashSerialized.GetHex());
         }
@@ -1097,7 +1126,7 @@ static RPCHelpMan gettxoutsetinfo()
         CHECK_NONFATAL(stats.total_amount.has_value());
         ret.pushKV("total_amount", ValueFromAmount(stats.total_amount.value()));
         if (!stats.index_used) {
-            ret.pushKV("transactions", static_cast<int64_t>(stats.nTransactions));
+            ret.pushKV("transactions", stats.nTransactions);
             ret.pushKV("disk_size", stats.nDiskSize);
         } else {
             CCoinsStats prev_stats{};
@@ -1217,13 +1246,13 @@ static RPCHelpMan gettxout()
     if (coin->nHeight == MEMPOOL_HEIGHT) {
         ret.pushKV("confirmations", 0);
     } else {
-        ret.pushKV("confirmations", (int64_t)(pindex->nHeight - coin->nHeight + 1));
+        ret.pushKV("confirmations", pindex->nHeight - coin->nHeight + 1);
     }
     ret.pushKV("value", ValueFromAmount(coin->out.nValue));
     UniValue o(UniValue::VOBJ);
     ScriptToUniv(coin->out.scriptPubKey, /*out=*/o, /*include_hex=*/true, /*include_address=*/true);
     ret.pushKV("scriptPubKey", std::move(o));
-    ret.pushKV("coinbase", (bool)coin->fCoinBase);
+    ret.pushKV("coinbase", static_cast<bool>(coin->fCoinBase));
 
     return ret;
 },
@@ -1354,7 +1383,7 @@ RPCHelpMan getblockchaininfo()
                 {RPCResult::Type::STR_HEX, "chainwork", "total amount of work in active chain, in hexadecimal"},
                 {RPCResult::Type::NUM, "size_on_disk", "the estimated size of the block and undo files on disk"},
                 {RPCResult::Type::BOOL, "pruned", "if the blocks are subject to pruning"},
-                {RPCResult::Type::NUM, "pruneheight", /*optional=*/true, "height of the last block pruned, plus one (only present if pruning is enabled)"},
+                {RPCResult::Type::NUM, "pruneheight", /*optional=*/true, "the first block unpruned, all previous blocks were pruned (only present if pruning is enabled)"},
                 {RPCResult::Type::BOOL, "automatic_pruning", /*optional=*/true, "whether automatic pruning is enabled (only present if pruning is enabled)"},
                 {RPCResult::Type::NUM, "prune_target_size", /*optional=*/true, "the target size used by pruning (only present if automatic pruning is enabled)"},
                 {RPCResult::Type::STR_HEX, "signet_challenge", /*optional=*/true, "the block challenge (aka. block script), in hexadecimal (only present if the current network is a signet)"},
@@ -1596,7 +1625,7 @@ static RPCHelpMan getchaintips()
         if (active_chain.Contains(block)) {
             // This block is part of the currently active chain.
             status = "active";
-        } else if (block->nStatus & BLOCK_FAILED_MASK) {
+        } else if (block->nStatus & BLOCK_FAILED_VALID) {
             // This block or one of its ancestors is invalid.
             status = "invalid";
         } else if (!block->HaveNumChainTxs()) {
@@ -1823,7 +1852,7 @@ static RPCHelpMan getchaintxstats()
     const int64_t nTimeDiff{pindex->GetMedianTimePast() - past_block.GetMedianTimePast()};
 
     UniValue ret(UniValue::VOBJ);
-    ret.pushKV("time", (int64_t)pindex->nTime);
+    ret.pushKV("time", pindex->nTime);
     if (pindex->m_chain_tx_count) {
         ret.pushKV("txcount", pindex->m_chain_tx_count);
     }
@@ -2053,7 +2082,7 @@ static RPCHelpMan getblockstats()
         int64_t tx_size = 0;
         if (do_calculate_size) {
 
-            tx_size = tx->GetTotalSize();
+            tx_size = tx->ComputeTotalSize();
             if (do_mediantxsize) {
                 txsize_array.push_back(tx_size);
             }
@@ -2119,7 +2148,7 @@ static RPCHelpMan getblockstats()
     ret_all.pushKV("avgtxsize", (block.vtx.size() > 1) ? total_size / (block.vtx.size() - 1) : 0);
     ret_all.pushKV("blockhash", pindex.GetBlockHash().GetHex());
     ret_all.pushKV("feerate_percentiles", std::move(feerates_res));
-    ret_all.pushKV("height", (int64_t)pindex.nHeight);
+    ret_all.pushKV("height", pindex.nHeight);
     ret_all.pushKV("ins", inputs);
     ret_all.pushKV("maxfee", maxfee);
     ret_all.pushKV("maxfeerate", maxfeerate);
@@ -2140,7 +2169,7 @@ static RPCHelpMan getblockstats()
     ret_all.pushKV("total_size", total_size);
     ret_all.pushKV("total_weight", total_weight);
     ret_all.pushKV("totalfee", totalfee);
-    ret_all.pushKV("txs", (int64_t)block.vtx.size());
+    ret_all.pushKV("txs", block.vtx.size());
     ret_all.pushKV("utxo_increase", outputs - inputs);
     ret_all.pushKV("utxo_size_inc", utxo_size_inc);
     ret_all.pushKV("utxo_increase_actual", utxos - inputs);
@@ -2383,7 +2412,7 @@ static RPCHelpMan scantxoutset()
             ChainstateManager& chainman = EnsureChainman(node);
             LOCK(cs_main);
             Chainstate& active_chainstate = chainman.ActiveChainstate();
-            active_chainstate.ForceFlushStateToDisk();
+            active_chainstate.ForceFlushStateToDisk(/*wipe_cache=*/false);
             pcursor = CHECK_NONFATAL(active_chainstate.CoinsDB().Cursor());
             tip = CHECK_NONFATAL(active_chainstate.m_chain.Tip());
         }
@@ -3200,7 +3229,7 @@ PrepareUTXOSnapshot(
         //
         AssertLockHeld(::cs_main);
 
-        chainstate.ForceFlushStateToDisk();
+        chainstate.ForceFlushStateToDisk(/*wipe_cache=*/false);
 
         maybe_stats = GetUTXOStats(&chainstate.CoinsDB(), chainstate.m_blockman, CoinStatsHashType::HASH_SERIALIZED, interruption_point);
         if (!maybe_stats) {
@@ -3437,7 +3466,7 @@ return RPCHelpMan{
         const CChain& chain = cs.m_chain;
         const CBlockIndex* tip = chain.Tip();
 
-        data.pushKV("blocks",                (int)chain.Height());
+        data.pushKV("blocks", chain.Height());
         data.pushKV("bestblockhash",         tip->GetBlockHash().GetHex());
         data.pushKV("bits", strprintf("%08x", tip->nBits));
         data.pushKV("target", GetTarget(*tip, chainman.GetConsensus().powLimit).GetHex());

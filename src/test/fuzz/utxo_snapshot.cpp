@@ -57,7 +57,7 @@ void sanity_check_snapshot()
     // Connect the chain to the tmp chainman and sanity check the chainparams snapshot values.
     LOCK(cs_main);
     auto& cs{node.chainman->ActiveChainstate()};
-    cs.ForceFlushStateToDisk();
+    cs.ForceFlushStateToDisk(/*wipe_cache=*/false);
     const auto stats{*Assert(kernel::ComputeUTXOStats(kernel::CoinStatsHashType::HASH_SERIALIZED, &cs.CoinsDB(), node.chainman->m_blockman))};
     const auto cp_au_data{*Assert(node.chainman->GetParams().AssumeutxoForHeight(2 * COINBASE_MATURITY))};
     Assert(stats.nHeight == cp_au_data.height);
@@ -89,7 +89,7 @@ void initialize_chain()
         auto& chainman{*setup->m_node.chainman};
         for (const auto& block : chain) {
             BlockValidationState dummy;
-            bool processed{chainman.ProcessNewBlockHeaders({{block->GetBlockHeader()}}, true, dummy)};
+            bool processed{chainman.ProcessNewBlockHeaders({{*block}}, true, dummy)};
             Assert(processed);
             const auto* index{WITH_LOCK(::cs_main, return chainman.m_blockman.LookupBlockIndex(block->GetHash()))};
             Assert(index);
@@ -171,7 +171,7 @@ void utxo_snapshot_fuzz(FuzzBufferType buffer)
         if constexpr (!INVALID) {
             for (const auto& block : *g_chain) {
                 BlockValidationState dummy;
-                bool processed{chainman.ProcessNewBlockHeaders({{block->GetBlockHeader()}}, true, dummy)};
+                bool processed{chainman.ProcessNewBlockHeaders({{*block}}, true, dummy)};
                 Assert(processed);
                 const auto* index{WITH_LOCK(::cs_main, return chainman.m_blockman.LookupBlockIndex(block->GetHash()))};
                 Assert(index);

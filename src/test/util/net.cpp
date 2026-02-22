@@ -31,7 +31,7 @@ void ConnmanTestMsg::Handshake(CNode& node,
     auto& connman{*this};
 
     peerman.InitializeNode(node, local_services);
-    peerman.SendMessages(&node);
+    peerman.SendMessages(node);
     FlushSendBuffer(node); // Drop the version message added by SendMessages.
 
     CSerializedNetMsg msg_version{
@@ -52,7 +52,7 @@ void ConnmanTestMsg::Handshake(CNode& node,
     (void)connman.ReceiveMsgFrom(node, std::move(msg_version));
     node.fPauseSend = false;
     connman.ProcessMessagesOnce(node);
-    peerman.SendMessages(&node);
+    peerman.SendMessages(node);
     FlushSendBuffer(node); // Drop the verack message added by SendMessages.
     if (node.fDisconnect) return;
     assert(node.nVersion == version);
@@ -66,7 +66,7 @@ void ConnmanTestMsg::Handshake(CNode& node,
         (void)connman.ReceiveMsgFrom(node, std::move(msg_verack));
         node.fPauseSend = false;
         connman.ProcessMessagesOnce(node);
-        peerman.SendMessages(&node);
+        peerman.SendMessages(node);
         assert(node.fSuccessfullyConnected == true);
     }
 }
@@ -78,6 +78,14 @@ void ConnmanTestMsg::ResetMaxOutboundCycle()
     LOCK(m_total_bytes_sent_mutex);
     nMaxOutboundCycleStartTime = 0s;
     nMaxOutboundTotalBytesSentInCycle = 0;
+}
+
+void ConnmanTestMsg::Reset()
+{
+    ResetAddrCache();
+    ResetMaxOutboundCycle();
+    m_private_broadcast.m_outbound_tor_ok_at_least_once.store(false);
+    m_private_broadcast.m_num_to_open.store(0);
 }
 
 void ConnmanTestMsg::NodeReceiveMsgBytes(CNode& node, std::span<const uint8_t> msg_bytes, bool& complete) const

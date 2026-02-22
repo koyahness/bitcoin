@@ -305,37 +305,6 @@ If you need to build exclusively for debugging, set the `-DCMAKE_BUILD_TYPE`
 to `Debug` (i.e. `-DCMAKE_BUILD_TYPE=Debug`). You can always check the cmake
 build options of an existing build with `ccmake build`.
 
-### Show sources in debugging
-
-If you have ccache enabled, absolute paths are stripped from debug information
-with the `-fdebug-prefix-map` and `-fmacro-prefix-map` options (if supported by the
-compiler). This might break source file detection in case you move binaries
-after compilation, debug from the directory other than the project root or use
-an IDE that only supports absolute paths for debugging (e.g. it won't stop at breakpoints).
-
-There are a few possible fixes:
-
-1. Configure source file mapping.
-
-For `gdb` create or append to [`.gdbinit` file](https://sourceware.org/gdb/current/onlinedocs/gdb#gdbinit-man):
-```
-set substitute-path ./src /path/to/project/root/src
-```
-
-For `lldb` create or append to [`.lldbinit` file](https://lldb.llvm.org/man/lldb.html#configuration-files):
-```
-settings set target.source-map ./src /path/to/project/root/src
-```
-
-2. Add a symlink to the `./src` directory:
-```
-ln -s /path/to/project/root/src src
-```
-
-3. Use `debugedit` to modify debug information in the binary.
-
-4. If your IDE has an option for this, change your breakpoints to use the file name only.
-
 ### debug.log
 
 If the code is behaving strangely, take a look in the `debug.log` file in the data directory;
@@ -557,6 +526,21 @@ llvm-cov show \
 ```
 
 The generated coverage report can be accessed at `build/coverage_report/index.html`.
+
+### Using IWYU
+
+The [`include-what-you-use`](https://github.com/include-what-you-use/include-what-you-use) tool (IWYU)
+helps to enforce the source code organization [policy](#source-code-organization) in this repository.
+
+To ensure consistency, it is recommended to run the IWYU CI job locally rather than running the tool directly.
+
+In some cases, IWYU might suggest headers that seem unnecessary at first glance, but are actually required.
+For example, a macro may use a symbol that requires its own include. Another example is passing a string literal
+to a function that accepts a `std::string` parameter. An implicit conversion occurs at the callsite using the
+`std::string` constructor, which makes the corresponding header required. We accept these suggestions as is.
+
+Use `IWYU pragma: export` very sparingly, as this enforces transitive inclusion of headers
+and undermines the specific purpose of IWYU.
 
 ### Performance profiling with perf
 
@@ -1057,7 +1041,7 @@ Write scripts in Python or Rust rather than bash, when possible.
 
   - *Rationale*: Excluding headers because they are already indirectly included results in compilation
     failures when those indirect dependencies change. Furthermore, it obscures what the real code
-    dependencies are.
+    dependencies are. The [Using IWYU](#using-iwyu) section describes a tool to help enforce this.
 
 - Don't import anything into the global namespace (`using namespace ...`). Use
   fully specified types such as `std::string`.

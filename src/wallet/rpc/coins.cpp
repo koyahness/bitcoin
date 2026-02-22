@@ -389,7 +389,7 @@ RPCHelpMan listlockunspent()
         UniValue o(UniValue::VOBJ);
 
         o.pushKV("txid", outpt.hash.GetHex());
-        o.pushKV("vout", (int)outpt.n);
+        o.pushKV("vout", outpt.n);
         ret.push_back(std::move(o));
     }
 
@@ -617,7 +617,7 @@ RPCHelpMan listunspent()
 
         UniValue entry(UniValue::VOBJ);
         entry.pushKV("txid", out.outpoint.hash.GetHex());
-        entry.pushKV("vout", (int)out.outpoint.n);
+        entry.pushKV("vout", out.outpoint.n);
 
         if (fValidAddress) {
             entry.pushKV("address", EncodeDestination(address));
@@ -667,9 +667,9 @@ RPCHelpMan listunspent()
             CAmount ancestor_fees;
             pwallet->chain().getTransactionAncestry(out.outpoint.hash, ancestor_count, descendant_count, &ancestor_size, &ancestor_fees);
             if (ancestor_count) {
-                entry.pushKV("ancestorcount", uint64_t(ancestor_count));
-                entry.pushKV("ancestorsize", uint64_t(ancestor_size));
-                entry.pushKV("ancestorfees", uint64_t(ancestor_fees));
+                entry.pushKV("ancestorcount", ancestor_count);
+                entry.pushKV("ancestorsize", ancestor_size);
+                entry.pushKV("ancestorfees", ancestor_fees);
             }
         }
         entry.pushKV("spendable", true); // Any coins we list are always spendable

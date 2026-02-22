@@ -63,6 +63,8 @@ COINBASE_MATURITY = 100
 # From BIP141
 WITNESS_COMMITMENT_HEADER = b"\xaa\x21\xa9\xed"
 
+NULL_OUTPOINT = COutPoint(0, 0xffffffff)
+
 NORMAL_GBT_REQUEST_PARAMS = {"rules": ["segwit"]}
 VERSIONBITS_LAST_OLD_BLOCK_VERSION = 4
 MIN_BLOCKS_TO_KEEP = 288
@@ -162,7 +164,7 @@ def add_witness_commitment(block, nonce=0):
 def script_BIP34_coinbase_height(height):
     if height <= 16:
         res = CScriptOp.encode_op_n(height)
-        # Append dummy to increase scriptSig size to 2 (see bad-cb-length consensus rule)
+        # Append dummy extraNonce to increase scriptSig size to 2 (see bad-cb-length consensus rule)
         return CScript([res, OP_0])
     return CScript([CScriptNum(height)])
 
@@ -177,7 +179,7 @@ def create_coinbase(height, pubkey=None, *, script_pubkey=None, extra_output_scr
     script. This is useful to pad block weight/sigops as needed. """
     coinbase = CTransaction()
     coinbase.nLockTime = height - 1
-    coinbase.vin.append(CTxIn(COutPoint(0, 0xffffffff), script_BIP34_coinbase_height(height), MAX_SEQUENCE_NONFINAL))
+    coinbase.vin.append(CTxIn(NULL_OUTPOINT, script_BIP34_coinbase_height(height), MAX_SEQUENCE_NONFINAL))
     coinbaseoutput = CTxOut()
     coinbaseoutput.nValue = nValue * COIN
     if nValue == 50:

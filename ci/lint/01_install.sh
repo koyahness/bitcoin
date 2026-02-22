@@ -8,7 +8,8 @@ export LC_ALL=C
 
 set -o errexit -o pipefail -o xtrace
 
-export CI_RETRY_EXE="/ci_retry --"
+export DEBIAN_FRONTEND=noninteractive
+export CI_RETRY_EXE="/ci_retry"
 
 pushd "/"
 

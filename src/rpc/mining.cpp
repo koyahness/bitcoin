@@ -165,7 +165,7 @@ static UniValue generateBlocks(ChainstateManager& chainman, Mining& miner, const
 {
     UniValue blockHashes(UniValue::VARR);
     while (nGenerate > 0 && !chainman.m_interrupt) {
-        std::unique_ptr<BlockTemplate> block_template(miner.createNewBlock({ .coinbase_output_script = coinbase_output_script }));
+        std::unique_ptr<BlockTemplate> block_template(miner.createNewBlock({ .coinbase_output_script = coinbase_output_script, .include_dummy_extranonce = true }));
         CHECK_NONFATAL(block_template);
 
         std::shared_ptr<const CBlock> block_out;
@@ -376,7 +376,7 @@ static RPCHelpMan generateblock()
     {
         LOCK(chainman.GetMutex());
         {
-            std::unique_ptr<BlockTemplate> block_template{miner.createNewBlock({.use_mempool = false, .coinbase_output_script = coinbase_output_script})};
+            std::unique_ptr<BlockTemplate> block_template{miner.createNewBlock({.use_mempool = false, .coinbase_output_script = coinbase_output_script, .include_dummy_extranonce = true})};
             CHECK_NONFATAL(block_template);
 
             block = block_template->getBlock();
@@ -469,7 +469,7 @@ static RPCHelpMan getmininginfo()
     obj.pushKV("difficulty", GetDifficulty(tip));
     obj.pushKV("target", GetTarget(tip, chainman.GetConsensus().powLimit).GetHex());
     obj.pushKV("networkhashps",    getnetworkhashps().HandleRequest(request));
-    obj.pushKV("pooledtx",         (uint64_t)mempool.size());
+    obj.pushKV("pooledtx", mempool.size());
     BlockAssembler::Options assembler_options;
     ApplyArgsManOptions(*node.args, assembler_options);
     obj.pushKV("blockmintxfee", ValueFromAmount(assembler_options.blockMinFeeRate.GetFeePerK()));
@@ -742,7 +742,7 @@ static RPCHelpMan getblocktemplate()
             if (pindex) {
                 if (pindex->IsValid(BLOCK_VALID_SCRIPTS))
                     return "duplicate";
-                if (pindex->nStatus & BLOCK_FAILED_MASK)
+                if (pindex->nStatus & BLOCK_FAILED_VALID)
                     return "duplicate-invalid";
                 return "duplicate-inconclusive";
             }
@@ -871,7 +871,7 @@ static RPCHelpMan getblocktemplate()
         time_start = GetTime();
 
         // Create new block
-        block_template = miner.createNewBlock();
+        block_template = miner.createNewBlock({.include_dummy_extranonce = true});
         CHECK_NONFATAL(block_template);
 
 
@@ -983,12 +983,12 @@ static RPCHelpMan getblocktemplate()
     result.pushKV("version", block.nVersion);
     result.pushKV("rules", std::move(aRules));
     result.pushKV("vbavailable", std::move(vbavailable));
-    result.pushKV("vbrequired", int(0));
+    result.pushKV("vbrequired", 0);
 
     result.pushKV("previousblockhash", block.hashPrevBlock.GetHex());
     result.pushKV("transactions", std::move(transactions));
     result.pushKV("coinbaseaux", std::move(aux));
-    result.pushKV("coinbasevalue", (int64_t)block.vtx[0]->vout[0].nValue);
+    result.pushKV("coinbasevalue", block.vtx[0]->vout[0].nValue);
     result.pushKV("longpollid", tip.GetHex() + ToString(nTransactionsUpdatedLast));
     result.pushKV("target", hashTarget.GetHex());
     result.pushKV("mintime", GetMinimumTime(pindexPrev, consensusParams.DifficultyAdjustmentInterval()));
@@ -1005,18 +1005,19 @@ static RPCHelpMan getblocktemplate()
     result.pushKV("sigoplimit", nSigOpLimit);
     result.pushKV("sizelimit", nSizeLimit);
     if (!fPreSegWit) {
-        result.pushKV("weightlimit", (int64_t)MAX_BLOCK_WEIGHT);
+        result.pushKV("weightlimit", MAX_BLOCK_WEIGHT);
     }
     result.pushKV("curtime", block.GetBlockTime());
     result.pushKV("bits", strprintf("%08x", block.nBits));
-    result.pushKV("height", (int64_t)(pindexPrev->nHeight+1));
+    result.pushKV("height", pindexPrev->nHeight + 1);
 
     if (consensusParams.signet_blocks) {
         result.pushKV("signet_challenge", HexStr(consensusParams.signet_challenge));
     }
 
-    if (!block_template->getCoinbaseCommitment().empty()) {
-        result.pushKV("default_witness_commitment", HexStr(block_template->getCoinbaseCommitment()));
+    if (auto coinbase{block_template->getCoinbaseTx()}; coinbase.required_outputs.size() > 0) {
+        CHECK_NONFATAL(coinbase.required_outputs.size() == 1); // Only one output is currently expected
+        result.pushKV("default_witness_commitment", HexStr(coinbase.required_outputs[0].scriptPubKey));
     }
 
     return result;

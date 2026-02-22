@@ -41,8 +41,6 @@
 #include <util/translation.h>
 #include <validation.h>
 
-#include <functional>
-
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
@@ -452,7 +450,11 @@ void BitcoinGUI::createActions()
             //: Label of the input field where the name of the wallet is entered.
             QString label = tr("Wallet Name");
             QString wallet_name = QInputDialog::getText(this, title, label, QLineEdit::Normal, "", &wallet_name_ok);
-            if (!wallet_name_ok || wallet_name.isEmpty()) return;
+            if (!wallet_name_ok) return;
+            if (wallet_name.isEmpty()) {
+                QMessageBox::critical(nullptr, tr("Invalid Wallet Name"), tr("Wallet name cannot be empty"));
+                return;
+            }
 
             auto activity = new RestoreWalletActivity(m_wallet_controller, this);
             connect(activity, &RestoreWalletActivity::restored, this, &BitcoinGUI::setCurrentWallet, Qt::QueuedConnection);
@@ -494,7 +496,7 @@ void BitcoinGUI::createActions()
                 action->setEnabled(false);
             }
             m_migrate_wallet_menu->addSeparator();
-            QAction* restore_migrate_file_action = m_migrate_wallet_menu->addAction(tr("Restore and Migrate Wallet File..."));
+            QAction* restore_migrate_file_action = m_migrate_wallet_menu->addAction(tr("Restore and Migrate Wallet File…"));
             restore_migrate_file_action->setEnabled(true);
 
             connect(restore_migrate_file_action, &QAction::triggered, [this] {
@@ -1589,7 +1591,7 @@ void BitcoinGUI::showModalOverlay()
         modalOverlay->toggleVisibility();
 }
 
-static bool ThreadSafeMessageBox(BitcoinGUI* gui, const bilingual_str& message, const std::string& caption, unsigned int style)
+static bool ThreadSafeMessageBox(BitcoinGUI* gui, const bilingual_str& message, unsigned int style)
 {
     bool modal = (style & CClientUIInterface::MODAL);
     // The SECURE flag has no effect in the Qt GUI.
@@ -1601,11 +1603,14 @@ static bool ThreadSafeMessageBox(BitcoinGUI* gui, const bilingual_str& message, 
     if (message.original != message.translated) {
         detailed_message = BitcoinGUI::tr("Original message:") + "\n" + QString::fromStdString(message.original);
     }
+    // The title is empty for node messages. The fallback title is usually set
+    // by `style`.
+    const QString title{};
 
     // In case of modal message, use blocking connection to wait for user to click a button
     bool invoked = QMetaObject::invokeMethod(gui, "message",
                                modal ? GUIUtil::blockingGUIThreadConnection() : Qt::QueuedConnection,
-                               Q_ARG(QString, QString::fromStdString(caption)),
+                               Q_ARG(QString, title),
                                Q_ARG(QString, QString::fromStdString(message.translated)),
                                Q_ARG(unsigned int, style),
                                Q_ARG(bool*, &ret),
@@ -1617,8 +1622,12 @@ static bool ThreadSafeMessageBox(BitcoinGUI* gui, const bilingual_str& message, 
 void BitcoinGUI::subscribeToCoreSignals()
 {
     // Connect signals to client
-    m_handler_message_box = m_node.handleMessageBox(std::bind(ThreadSafeMessageBox, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
-    m_handler_question = m_node.handleQuestion(std::bind(ThreadSafeMessageBox, this, std::placeholders::_1, std::placeholders::_3, std::placeholders::_4));
+    m_handler_message_box = m_node.handleMessageBox([this](const bilingual_str& message, unsigned int style) {
+        return ThreadSafeMessageBox(this, message, style);
+    });
+    m_handler_question = m_node.handleQuestion([this](const bilingual_str& message, const std::string& /*non_interactive_message*/, unsigned int style) {
+        return ThreadSafeMessageBox(this, message, style);
+    });
 }
 
 void BitcoinGUI::unsubscribeFromCoreSignals()

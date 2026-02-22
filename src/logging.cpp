@@ -202,6 +202,7 @@ static const std::map<std::string, BCLog::LogFlags, std::less<>> LOG_CATEGORIES_
     {"scan", BCLog::SCAN},
     {"txpackages", BCLog::TXPACKAGES},
     {"kernel", BCLog::KERNEL},
+    {"privatebroadcast", BCLog::PRIVBROADCAST},
 };
 
 static const std::unordered_map<BCLog::LogFlags, std::string> LOG_CATEGORIES_BY_FLAG{
@@ -600,4 +601,17 @@ bool BCLog::Logger::SetCategoryLogLevel(std::string_view category_str, std::stri
     StdLockGuard scoped_lock(m_cs);
     m_category_log_levels[flag] = level.value();
     return true;
+}
+
+bool util::log::ShouldLog(Category category, Level level)
+{
+    return LogInstance().WillLogCategoryLevel(static_cast<BCLog::LogFlags>(category), level);
+}
+
+void util::log::Log(util::log::Entry entry)
+{
+    BCLog::Logger& logger{LogInstance()};
+    if (logger.Enabled()) {
+        logger.LogPrintStr(std::move(entry.message), std::move(entry.source_loc), static_cast<BCLog::LogFlags>(entry.category), entry.level, entry.should_ratelimit);
+    }
 }

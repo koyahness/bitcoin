@@ -67,6 +67,7 @@
 #include <any>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <utility>
 
 #include <boost/signals2/signal.hpp>
@@ -84,6 +85,7 @@ using interfaces::WalletLoader;
 using kernel::ChainstateRole;
 using node::BlockAssembler;
 using node::BlockWaitOptions;
+using node::CoinbaseTx;
 using util::Join;
 
 namespace node {
@@ -888,19 +890,9 @@ public:
         return m_block_template->vTxSigOpsCost;
     }
 
-    CTransactionRef getCoinbaseTx() override
+    CoinbaseTx getCoinbaseTx() override
     {
-        return m_block_template->block.vtx[0];
-    }
-
-    std::vector<unsigned char> getCoinbaseCommitment() override
-    {
-        return m_block_template->vchCoinbaseCommitment;
-    }
-
-    int getWitnessCommitmentIndex() override
-    {
-        return GetWitnessCommitmentIndex(m_block_template->block);
+        return m_block_template->m_coinbase_tx;
     }
 
     std::vector<uint256> getCoinbaseMerklePath() override
@@ -963,6 +955,16 @@ public:
 
     std::unique_ptr<BlockTemplate> createNewBlock(const BlockCreateOptions& options) override
     {
+        // Reject too-small values instead of clamping so callers don't silently
+        // end up mining with different options than requested. This matches the
+        // behavior of the `-blockreservedweight` startup option, which rejects
+        // values below MINIMUM_BLOCK_RESERVED_WEIGHT.
+        if (options.block_reserved_weight && options.block_reserved_weight < MINIMUM_BLOCK_RESERVED_WEIGHT) {
+            throw std::runtime_error(strprintf("block_reserved_weight (%zu) must be at least %u weight units",
+                                               *options.block_reserved_weight,
+                                               MINIMUM_BLOCK_RESERVED_WEIGHT));
+        }
+
         // Ensure m_tip_block is set so consumers of BlockTemplate can rely on that.
         if (!waitTipChanged(uint256::ZERO, MillisecondsDouble::max())) return {};
 
@@ -974,7 +976,7 @@ public:
     bool checkBlock(const CBlock& block, const node::BlockCheckOptions& options, std::string& reason, std::string& debug) override
     {
         LOCK(chainman().GetMutex());
-        BlockValidationState state{TestBlockValidity(chainman().ActiveChainstate(), block, /*check_pow=*/options.check_pow, /*=check_merkle_root=*/options.check_merkle_root)};
+        BlockValidationState state{TestBlockValidity(chainman().ActiveChainstate(), block, /*check_pow=*/options.check_pow, /*check_merkle_root=*/options.check_merkle_root)};
         reason = state.GetRejectReason();
         debug = state.GetDebugMessage();
         return state.IsValid();

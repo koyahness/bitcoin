@@ -69,6 +69,7 @@ CBlock BuildChainTestingSetup::CreateBlock(const CBlockIndex* prev,
 {
     BlockAssembler::Options options;
     options.coinbase_output_script = scriptPubKey;
+    options.include_dummy_extranonce = true;
     std::unique_ptr<CBlockTemplate> pblocktemplate = BlockAssembler{m_node.chainman->ActiveChainstate(), m_node.mempool.get(), options}.CreateNewBlock();
     CBlock& block = pblocktemplate->block;
     block.hashPrevBlock = prev->GetBlockHash();
@@ -102,10 +103,9 @@ bool BuildChainTestingSetup::BuildChain(const CBlockIndex* pindex,
     chain.resize(length);
     for (auto& block : chain) {
         block = std::make_shared<CBlock>(CreateBlock(pindex, no_txns, coinbase_script_pub_key));
-        CBlockHeader header = block->GetBlockHeader();
 
         BlockValidationState state;
-        if (!Assert(m_node.chainman)->ProcessNewBlockHeaders({{header}}, true, state, &pindex)) {
+        if (!Assert(m_node.chainman)->ProcessNewBlockHeaders({{*block}}, true, state, &pindex)) {
             return false;
         }
     }

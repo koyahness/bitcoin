@@ -148,7 +148,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             self.log.exception(f"Called Process failed with stdout='{e.stdout}'; stderr='{e.stderr}';")
             self.success = TestStatus.FAILED
         except BaseException:
-            self.log.exception("Unexpected exception")
+            # The `exception` log will add the exception info to the message.
+            # https://docs.python.org/3/library/logging.html#logging.exception
+            self.log.exception("Unexpected exception:")
             self.success = TestStatus.FAILED
         finally:
             exit_code = self.shutdown()
@@ -278,7 +280,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             pdb.set_trace()
 
         self.log.debug('Closing down network thread')
-        self.network_thread.close()
+        self.network_thread.close(timeout=self.options.timeout_factor * 10)
         if self.success == TestStatus.FAILED:
             self.log.info("Not stopping nodes as test failed. The dangling processes will be cleaned up later.")
         else:
@@ -943,6 +945,11 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         if not self.is_bitcoin_chainstate_compiled():
             raise SkipTest("bitcoin-chainstate has not been compiled")
 
+    def skip_if_no_bitcoin_bench(self):
+        """Skip the running test if bench_bitcoin has not been compiled."""
+        if not self.is_bench_compiled():
+            raise SkipTest("bench_bitcoin has not been compiled")
+
     def skip_if_no_cli(self):
         """Skip the running test if bitcoin-cli has not been compiled."""
         if not self.is_cli_compiled():
@@ -976,6 +983,10 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         if self.options.valgrind:
             raise SkipTest("This test is not compatible with Valgrind.")
 
+    def is_bench_compiled(self):
+        """Checks whether bench_bitcoin was compiled."""
+        return self.config["components"].getboolean("BUILD_BENCH")
+
     def is_cli_compiled(self):
         """Checks whether bitcoin-cli was compiled."""
         return self.config["components"].getboolean("ENABLE_CLI")
@@ -1007,6 +1018,10 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
     def is_zmq_compiled(self):
         """Checks whether the zmq module was compiled."""
         return self.config["components"].getboolean("ENABLE_ZMQ")
+
+    def is_embedded_asmap_compiled(self):
+        """Checks whether ASMap data was embedded during compilation."""
+        return self.config["components"].getboolean("ENABLE_EMBEDDED_ASMAP")
 
     def is_usdt_compiled(self):
         """Checks whether the USDT tracepoints were compiled."""

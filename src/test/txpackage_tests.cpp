@@ -139,7 +139,7 @@ BOOST_AUTO_TEST_CASE(package_sanitization_tests)
         package_too_many.emplace_back(create_placeholder_tx(1, 1));
     }
     PackageValidationState state_too_many;
-    BOOST_CHECK(!IsWellFormedPackage(package_too_many, state_too_many, /*require_sorted=*/true));
+    BOOST_CHECK(!IsWellFormedPackage(package_too_many, state_too_many));
     BOOST_CHECK_EQUAL(state_too_many.GetResult(), PackageValidationResult::PCKG_POLICY);
     BOOST_CHECK_EQUAL(state_too_many.GetRejectReason(), "package-too-many-transactions");
 
@@ -154,7 +154,7 @@ BOOST_AUTO_TEST_CASE(package_sanitization_tests)
     }
     BOOST_CHECK(package_too_large.size() <= MAX_PACKAGE_COUNT);
     PackageValidationState state_too_large;
-    BOOST_CHECK(!IsWellFormedPackage(package_too_large, state_too_large, /*require_sorted=*/true));
+    BOOST_CHECK(!IsWellFormedPackage(package_too_large, state_too_large));
     BOOST_CHECK_EQUAL(state_too_large.GetResult(), PackageValidationResult::PCKG_POLICY);
     BOOST_CHECK_EQUAL(state_too_large.GetRejectReason(), "package-too-large");
 
@@ -165,7 +165,7 @@ BOOST_AUTO_TEST_CASE(package_sanitization_tests)
         package_duplicate_txids_empty.emplace_back(MakeTransactionRef(empty_tx));
     }
     PackageValidationState state_duplicates;
-    BOOST_CHECK(!IsWellFormedPackage(package_duplicate_txids_empty, state_duplicates, /*require_sorted=*/true));
+    BOOST_CHECK(!IsWellFormedPackage(package_duplicate_txids_empty, state_duplicates));
     BOOST_CHECK_EQUAL(state_duplicates.GetResult(), PackageValidationResult::PCKG_POLICY);
     BOOST_CHECK_EQUAL(state_duplicates.GetRejectReason(), "package-contains-duplicates");
     BOOST_CHECK(!IsConsistentPackage(package_duplicate_txids_empty));
@@ -184,7 +184,7 @@ BOOST_AUTO_TEST_CASE(package_sanitization_tests)
     // Transactions are considered sorted when they have no dependencies.
     BOOST_CHECK(IsTopoSortedPackage(package_conflicts));
     PackageValidationState state_conflicts;
-    BOOST_CHECK(!IsWellFormedPackage(package_conflicts, state_conflicts, /*require_sorted=*/true));
+    BOOST_CHECK(!IsWellFormedPackage(package_conflicts, state_conflicts));
     BOOST_CHECK_EQUAL(state_conflicts.GetResult(), PackageValidationResult::PCKG_POLICY);
     BOOST_CHECK_EQUAL(state_conflicts.GetRejectReason(), "conflict-in-package");
 
@@ -274,8 +274,8 @@ BOOST_AUTO_TEST_CASE(noncontextual_package_tests)
         CTransactionRef tx_child = MakeTransactionRef(mtx_child);
 
         PackageValidationState state;
-        BOOST_CHECK(IsWellFormedPackage({tx_parent, tx_child}, state, /*require_sorted=*/true));
-        BOOST_CHECK(!IsWellFormedPackage({tx_child, tx_parent}, state, /*require_sorted=*/true));
+        BOOST_CHECK(IsWellFormedPackage({tx_parent, tx_child}, state));
+        BOOST_CHECK(!IsWellFormedPackage({tx_child, tx_parent}, state));
         BOOST_CHECK_EQUAL(state.GetResult(), PackageValidationResult::PCKG_POLICY);
         BOOST_CHECK_EQUAL(state.GetRejectReason(), "package-not-sorted");
         BOOST_CHECK(IsChildWithParents({tx_parent, tx_child}));
@@ -308,7 +308,7 @@ BOOST_AUTO_TEST_CASE(noncontextual_package_tests)
         package.push_back(MakeTransactionRef(child));
 
         PackageValidationState state;
-        BOOST_CHECK(IsWellFormedPackage(package, state, /*require_sorted=*/true));
+        BOOST_CHECK(IsWellFormedPackage(package, state));
         BOOST_CHECK(IsChildWithParents(package));
         BOOST_CHECK(IsChildWithParentsTree(package));
 
@@ -346,8 +346,8 @@ BOOST_AUTO_TEST_CASE(noncontextual_package_tests)
         BOOST_CHECK(!IsChildWithParentsTree({tx_parent, tx_parent_also_child, tx_child}));
         // IsChildWithParents does not detect unsorted parents.
         BOOST_CHECK(IsChildWithParents({tx_parent_also_child, tx_parent, tx_child}));
-        BOOST_CHECK(IsWellFormedPackage({tx_parent, tx_parent_also_child, tx_child}, state, /*require_sorted=*/true));
-        BOOST_CHECK(!IsWellFormedPackage({tx_parent_also_child, tx_parent, tx_child}, state, /*require_sorted=*/true));
+        BOOST_CHECK(IsWellFormedPackage({tx_parent, tx_parent_also_child, tx_child}, state));
+        BOOST_CHECK(!IsWellFormedPackage({tx_parent_also_child, tx_parent, tx_child}, state));
         BOOST_CHECK_EQUAL(state.GetResult(), PackageValidationResult::PCKG_POLICY);
         BOOST_CHECK_EQUAL(state.GetRejectReason(), "package-not-sorted");
     }
@@ -908,10 +908,10 @@ BOOST_AUTO_TEST_CASE(package_cpfp_tests)
         } else {
             BOOST_CHECK_EQUAL(submit_cpfp_deprio.m_state.GetResult(), PackageValidationResult::PCKG_TX);
             BOOST_CHECK_EQUAL(submit_cpfp_deprio.m_tx_results.find(tx_parent->GetWitnessHash())->second.m_state.GetResult(),
-                              TxValidationResult::TX_MEMPOOL_POLICY);
+                              TxValidationResult::TX_RECONSIDERABLE);
             BOOST_CHECK_EQUAL(submit_cpfp_deprio.m_tx_results.find(tx_child->GetWitnessHash())->second.m_state.GetResult(),
-                              TxValidationResult::TX_MISSING_INPUTS);
-            BOOST_CHECK(submit_cpfp_deprio.m_tx_results.find(tx_parent->GetWitnessHash())->second.m_state.GetRejectReason() == "min relay fee not met");
+                              TxValidationResult::TX_RECONSIDERABLE);
+            BOOST_CHECK_EQUAL(submit_cpfp_deprio.m_tx_results.find(tx_parent->GetWitnessHash())->second.m_state.GetRejectReason(), "mempool min fee not met");
             BOOST_CHECK_EQUAL(m_node.mempool->size(), expected_pool_size);
         }
     }
@@ -1067,8 +1067,8 @@ BOOST_AUTO_TEST_CASE(package_cpfp_tests)
                     strprintf("rich parent: expected fee %s, got %s", high_parent_fee, it_parent->second.m_base_fees.value()));
             BOOST_CHECK(it_parent->second.m_effective_feerate == CFeeRate(high_parent_fee, GetVirtualTransactionSize(*tx_parent_rich)));
             BOOST_CHECK_EQUAL(it_child->second.m_result_type, MempoolAcceptResult::ResultType::INVALID);
-            BOOST_CHECK_EQUAL(it_child->second.m_state.GetResult(), TxValidationResult::TX_MEMPOOL_POLICY);
-            BOOST_CHECK(it_child->second.m_state.GetRejectReason() == "min relay fee not met");
+            BOOST_CHECK_EQUAL(it_child->second.m_state.GetResult(), TxValidationResult::TX_RECONSIDERABLE);
+            BOOST_CHECK_EQUAL(it_child->second.m_state.GetRejectReason(), "mempool min fee not met");
         }
         expected_pool_size += 1;
         BOOST_CHECK_EQUAL(m_node.mempool->size(), expected_pool_size);

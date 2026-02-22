@@ -367,7 +367,6 @@ struct GetinfoRequestHandler : BaseRequestHandler {
             if (!batch[ID_WALLETINFO]["result"]["unlocked_until"].isNull()) {
                 result.pushKV("unlocked_until", batch[ID_WALLETINFO]["result"]["unlocked_until"]);
             }
-            result.pushKV("paytxfee", batch[ID_WALLETINFO]["result"]["paytxfee"]);
         }
         if (!batch[ID_BALANCES]["result"].isNull()) {
             result.pushKV("balance", batch[ID_BALANCES]["result"]["mine"]["trusted"]);
@@ -452,6 +451,7 @@ private:
         if (conn_type == "block-relay-only") return "block";
         if (conn_type == "manual" || conn_type == "feeler") return conn_type;
         if (conn_type == "addr-fetch") return "addr";
+        if (conn_type == "private-broadcast") return "priv";
         return "";
     }
     std::string FormatServices(const UniValue& services)
@@ -703,6 +703,7 @@ public:
         "           \"manual\" - peer we manually added using RPC addnode or the -addnode/-connect config options\n"
         "           \"feeler\" - short-lived connection for testing addresses\n"
         "           \"addr\"   - address fetch; short-lived connection for requesting addresses\n"
+        "           \"priv\"   - private broadcast; short-lived connection for broadcasting our transactions\n"
         "  net      Network the peer connected through (\"ipv4\", \"ipv6\", \"onion\", \"i2p\", \"cjdns\", or \"npr\" (not publicly routable))\n"
         "  serv     Services offered by the peer\n"
         "           \"n\" - NETWORK: peer can serve the full block chain\n"
@@ -1150,7 +1151,6 @@ static void ParseGetInfoResult(UniValue& result)
         if (!result["unlocked_until"].isNull()) {
             result_string += strprintf("Unlocked until: %s\n", result["unlocked_until"].getValStr());
         }
-        result_string += strprintf("Transaction fee rate (-paytxfee) (%s/kvB): %s\n\n", CURRENCY_UNIT, result["paytxfee"].getValStr());
     }
     if (!result["balance"].isNull()) {
         result_string += strprintf("%sBalance:%s %s\n\n", CYAN, RESET, result["balance"].getValStr());

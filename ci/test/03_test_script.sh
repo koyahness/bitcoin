@@ -44,32 +44,6 @@ echo "=== BEGIN env ==="
 env
 echo "=== END env ==="
 
-# Don't apply patches in the iwyu job, because it relies on the `git diff`
-# command to detect IWYU errors. It is safe to skip this patch in the iwyu job
-# because it doesn't run a UB detector.
-if [[ "${RUN_IWYU}" != true ]]; then
-  # compact->outputs[i].file_size is uninitialized memory, so reading it is UB.
-  # The statistic bytes_written is only used for logging, which is disabled in
-  # CI, so as a temporary minimal fix to work around UB and CI failures, leave
-  # bytes_written unmodified.
-  # See https://github.com/bitcoin/bitcoin/pull/28359#issuecomment-1698694748
-  # Tee patch to stdout to make it clear CI is testing modified code.
-  tee >(patch -p1) <<'EOF'
---- a/src/leveldb/db/db_impl.cc
-+++ b/src/leveldb/db/db_impl.cc
-@@ -1028,9 +1028,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact) {
-       stats.bytes_read += compact->compaction->input(which, i)->file_size;
-     }
-   }
--  for (size_t i = 0; i < compact->outputs.size(); i++) {
--    stats.bytes_written += compact->outputs[i].file_size;
--  }
-
-   mutex_.Lock();
-   stats_[compact->compaction->level() + 1].Add(stats);
-EOF
-fi
-
 if [ "$RUN_FUZZ_TESTS" = "true" ]; then
   export DIR_FUZZ_IN=${DIR_QA_ASSETS}/fuzz_corpora/
   if [ ! -d "$DIR_FUZZ_IN" ]; then
@@ -107,16 +81,12 @@ if [ "$DOWNLOAD_PREVIOUS_RELEASES" = "true" ]; then
   test/get_previous_releases.py --target-dir "$PREVIOUS_RELEASES_DIR"
 fi
 
-BITCOIN_CONFIG_ALL="-DBUILD_BENCH=ON -DBUILD_FUZZ_BINARY=ON"
+BITCOIN_CONFIG_ALL="-DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DBUILD_BENCH=ON -DBUILD_FUZZ_BINARY=ON"
 if [ -z "$NO_DEPENDS" ]; then
   BITCOIN_CONFIG_ALL="${BITCOIN_CONFIG_ALL} -DCMAKE_TOOLCHAIN_FILE=$DEPENDS_DIR/$HOST/toolchain.cmake"
 fi
-if [ -z "$NO_WERROR" ]; then
-  BITCOIN_CONFIG_ALL="${BITCOIN_CONFIG_ALL} -DWERROR=ON"
-fi
 
 ccache --zero-stats
-PRINT_CCACHE_STATISTICS="ccache --version | head -n 1 && ccache --show-stats"
 
 # Folder where the build is done.
 BASE_BUILD_DIR=${BASE_BUILD_DIR:-$BASE_SCRATCH_DIR/build-$HOST}
@@ -147,12 +117,10 @@ cmake --build "${BASE_BUILD_DIR}" "$MAKEJOBS" --target $GOAL || (
   false
 )
 
-bash -c "${PRINT_CCACHE_STATISTICS}"
-if [ "$CI" = "true" ]; then
-  hit_rate=$(ccache -s | grep "Hits:" | head -1 | sed 's/.*(\(.*\)%).*/\1/')
-  if [ "${hit_rate%.*}" -lt 75 ]; then
-      echo "::notice title=low ccache hitrate::Ccache hit-rate in $CONTAINER_NAME was $hit_rate%"
-  fi
+ccache --version | head -n 1 && ccache --show-stats --verbose
+hit_rate=$(ccache --show-stats | grep "Hits:" | head -1 | sed 's/.*(\(.*\)%).*/\1/')
+if [ "${hit_rate%.*}" -lt 75 ]; then
+  echo "::notice title=low ccache hitrate::Ccache hit-rate in $CONTAINER_NAME was $hit_rate%"
 fi
 du -sh "${DEPENDS_DIR}"/*/
 du -sh "${PREVIOUS_RELEASES_DIR}"
@@ -184,7 +152,7 @@ if [ "$RUN_FUNCTIONAL_TESTS" = "true" ]; then
   eval "TEST_RUNNER_EXTRA=($TEST_RUNNER_EXTRA)"
   LD_LIBRARY_PATH="${DEPENDS_DIR}/${HOST}/lib" \
   "${BASE_BUILD_DIR}/test/functional/test_runner.py" \
-    --ci "${MAKEJOBS}" \
+    "${MAKEJOBS}" \
     --tmpdirprefix "${BASE_SCRATCH_DIR}/test_runner/" \
     --ansi \
     --combinedlogslen=99999999 \
@@ -215,7 +183,7 @@ fi
 
 if [[ "${RUN_IWYU}" == true ]]; then
   # TODO: Consider enforcing IWYU across the entire codebase.
-  FILES_WITH_ENFORCED_IWYU="/src/((crypto|index)/.*\\.cpp|node/blockstorage.cpp|node/utxo_snapshot.cpp|core_read.cpp|signet.cpp|kernel/chain.cpp)"
+  FILES_WITH_ENFORCED_IWYU="/src/((crypto|index|kernel|primitives|univalue/(lib|test)|zmq)/.*\\.cpp|node/blockstorage\\.cpp|node/utxo_snapshot\\.cpp|core_io\\.cpp|signet\\.cpp)"
   jq --arg patterns "$FILES_WITH_ENFORCED_IWYU" 'map(select(.file | test($patterns)))' "${BASE_BUILD_DIR}/compile_commands.json" > "${BASE_BUILD_DIR}/compile_commands_iwyu_errors.json"
   jq --arg patterns "$FILES_WITH_ENFORCED_IWYU" 'map(select(.file | test($patterns) | not))' "${BASE_BUILD_DIR}/compile_commands.json" > "${BASE_BUILD_DIR}/compile_commands_iwyu_warnings.json"
 
@@ -227,9 +195,10 @@ if [[ "${RUN_IWYU}" == true ]]; then
              -p "${BASE_BUILD_DIR}" "${MAKEJOBS}" \
              -- -Xiwyu --cxx17ns -Xiwyu --mapping_file="${BASE_ROOT_DIR}/contrib/devtools/iwyu/bitcoin.core.imp" \
              -Xiwyu --max_line_length=160 \
+             -Xiwyu --check_also="*/primitives/*.h" \
              2>&1 | tee /tmp/iwyu_ci.out
     python3 "/include-what-you-use/fix_includes.py" --nosafe_headers < /tmp/iwyu_ci.out
-    git diff -U0 | ./contrib/devtools/clang-format-diff.py -binary="clang-format-${TIDY_LLVM_V}" -p1 -i -v
+    git diff -U1 | ./contrib/devtools/clang-format-diff.py -binary="clang-format-${TIDY_LLVM_V}" -p1 -i -v
   }
 
   run_iwyu "compile_commands_iwyu_errors.json"

@@ -1,4 +1,4 @@
-// Copyright (c) 2020-2022 The Bitcoin Core developers
+// Copyright (c) 2020-present The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -61,7 +61,7 @@ FUZZ_TARGET(block_index_tree, .init = initialize_block_index_tree)
                 // Receive a header building on an existing valid one. This assumes headers are valid, so PoW is not relevant here.
                 LOCK(cs_main);
                 CBlockIndex* prev_block = PickValue(fuzzed_data_provider, blocks);
-                if (!(prev_block->nStatus & BLOCK_FAILED_MASK)) {
+                if (!(prev_block->nStatus & BLOCK_FAILED_VALID)) {
                     CBlockHeader header = ConsumeBlockHeader(fuzzed_data_provider, prev_block->GetBlockHash(), nonce_counter);
                     CBlockIndex* index = blockman.AddToBlockIndex(header, chainman.m_best_header);
                     assert(index->nStatus & BLOCK_VALID_TREE);
@@ -74,7 +74,7 @@ FUZZ_TARGET(block_index_tree, .init = initialize_block_index_tree)
                 LOCK(cs_main);
                 CBlockIndex* index = PickValue(fuzzed_data_provider, blocks);
                 // Must be new to us and not known to be invalid (e.g. because of an invalid ancestor).
-                if (index->nTx == 0 && !(index->nStatus & BLOCK_FAILED_MASK)) {
+                if (index->nTx == 0 && !(index->nStatus & BLOCK_FAILED_VALID)) {
                     if (fuzzed_data_provider.ConsumeBool()) { // Invalid
                         BlockValidationState state;
                         state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "consensus-invalid");
@@ -124,7 +124,7 @@ FUZZ_TARGET(block_index_tree, .init = initialize_block_index_tree)
                     }
                     // Connect blocks, possibly fail
                     for (CBlockIndex* block : to_connect | std::views::reverse) {
-                        assert(!(block->nStatus & BLOCK_FAILED_MASK));
+                        assert(!(block->nStatus & BLOCK_FAILED_VALID));
                         assert(block->nStatus & BLOCK_HAVE_DATA);
                         if (!block->IsValid(BLOCK_VALID_SCRIPTS)) {
                             if (fuzzed_data_provider.ConsumeBool()) { // Invalid
@@ -207,7 +207,7 @@ FUZZ_TARGET(block_index_tree, .init = initialize_block_index_tree)
         chainman.nBlockSequenceId = 2;
         chainman.ActiveChain().SetTip(*genesis);
         chainman.ActiveChainstate().setBlockIndexCandidates.clear();
-        chainman.m_cached_finished_ibd = false;
+        chainman.m_cached_is_ibd = true;
         blockman.m_blocks_unlinked.clear();
         blockman.m_have_pruned = false;
         blockman.CleanupForFuzzing();
